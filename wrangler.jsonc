@@ -44,12 +44,29 @@
     "binding": "IMAGES",
   },
 
+  // Transactional email: contact form, invites, approval notices, and
+  // newsletter opt-in confirmations.
+  //
+  // Restricted to a single sender address so a bug or compromise cannot send
+  // as an arbitrary @fairportdrama.com address.
+  //
+  // Not marked `remote: true`, so local development does not send real mail.
+  // Testing an actual delivery requires a deployed preview.
+  //
+  // NOTE: fairportdrama.com must be onboarded first:
+  //   wrangler email sending enable fairportdrama.com
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["noreply@fairportdrama.com"],
+    },
+  ],
+
   "vars": {
     "SITE_URL": "https://fairportdrama.com",
   },
 
   // Secrets, set via `wrangler secret put`:
-  //   RESEND_API_KEY          - contact form email
   //   CONTACT_EMAIL           - contact form destination
   //   TURNSTILE_SECRET_KEY    - contact form spam check
   //   BETTER_AUTH_SECRET      - session signing

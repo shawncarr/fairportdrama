@@ -4,10 +4,10 @@ export interface Bindings {
   DB: D1Database;
   KV: KVNamespace;
   IMAGES: ImagesBinding;
+  EMAIL: SendEmail;
 
   SITE_URL: string;
 
-  RESEND_API_KEY: string;
   CONTACT_EMAIL: string;
   TURNSTILE_SECRET_KEY: string;
   BETTER_AUTH_SECRET: string;
