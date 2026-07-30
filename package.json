@@ -7,13 +7,15 @@
     "build:css": "tailwindcss -i ./src/styles/global.css -o ./public/static/global.css --minify",
     "build:css:watch": "tailwindcss -i ./src/styles/global.css -o ./public/static/global.css --watch",
     "deploy": "npm run build:css && wrangler deploy",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "wrangler types && tsc --noEmit",
     "cf-typegen": "wrangler types",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply fairport-drama-db --local",
     "db:migrate": "wrangler d1 migrations apply fairport-drama-db --remote",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run && vitest run --config vitest.workers.config.ts",
+    "test:watch": "vitest",
+    "test:unit": "vitest run",
+    "test:integration": "vitest run --config vitest.workers.config.ts"
   },
   "keywords": [],
   "author": "",

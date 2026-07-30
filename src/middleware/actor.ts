@@ -1,50 +1,56 @@
 import { createMiddleware } from 'hono/factory';
 import type { AppEnv } from '~/env';
+import { createAuth } from '~/lib/auth';
 import { AUDIT_ACTOR_KIND, systemActor, type Actor } from '~/lib/audit/actor';
+import type { AppRole } from '~/db/schema/governance';
 
 /**
- * Resolves the audit actor exactly once per request.
+ * Resolves the request's identity exactly once.
  *
  * Every mutation reads `c.get('actor')` rather than reconstructing an actor
- * from a session or a passed-in user id. This is deliberate: reconstructing
- * the actor at each call site is how attribution drifts, and how rows end up
- * claiming `kind: user` with a null id.
+ * from a session or a passed-in user id. Reconstructing at the call site is how
+ * attribution drifts, and how rows end up claiming `kind: user` while carrying
+ * a null id - a defect nothing fails on at write time.
  *
- * The actor kind, id, and label are resolved together as a unit. A request
- * without a session is a `system` actor, never a user actor with a missing id.
+ * Kind, id, and label are resolved together as a unit. A request without a
+ * session is a `system` actor, never a user actor with a missing id.
  */
 export const actorMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const ip = c.req.header('CF-Connecting-IP') ?? null;
   const userAgent = c.req.header('User-Agent') ?? null;
 
-  const session = await resolveSession(c);
+  let actor: Actor = systemActor(ip, userAgent);
+  let role: AppRole | null = null;
+  let memberId: string | null = null;
 
-  const actor: Actor = session
-    ? {
+  try {
+    const auth = createAuth(c.env);
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+
+    if (session?.user) {
+      const u = session.user as typeof session.user & {
+        role?: string | null;
+        memberId?: string | null;
+      };
+
+      actor = {
         kind: AUDIT_ACTOR_KIND.User,
-        id: session.userId,
-        label: session.label,
+        id: u.id,
+        label: u.name ?? u.email ?? null,
         ip,
         userAgent,
-      }
-    : systemActor(ip, userAgent);
+      };
+      role = (u.role as AppRole | undefined) ?? null;
+      memberId = u.memberId ?? null;
+    }
+  } catch {
+    // A failure to read the session is not an authorization decision. Fall
+    // through as the system actor with no role, which grants nothing.
+  }
 
   c.set('actor', actor);
+  c.set('role', role);
+  c.set('memberId', memberId);
+
   await next();
 });
-
-interface ResolvedSession {
-  userId: string;
-  label: string | null;
-}
-
-/**
- * Placeholder until Better Auth is mounted. Returning null here means every
- * request currently resolves to the system actor, which is the correct
- * fail-safe: unattributed, not misattributed.
- */
-async function resolveSession(
-  _c: Parameters<Parameters<typeof createMiddleware<AppEnv>>[0]>[0],
-): Promise<ResolvedSession | null> {
-  return null;
-}

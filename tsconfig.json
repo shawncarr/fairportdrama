@@ -11,7 +11,7 @@
     "resolveJsonModule": true,
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
-    "types": ["@cloudflare/workers-types"],
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"],
     "lib": ["ESNext"],
     "noEmit": true,
     "paths": {
@@ -21,6 +21,6 @@
   // Build config (vite/vitest/drizzle-kit) runs in Node, not workerd, and is
   // typechecked by the tools that execute it. Including it here would require
   // pulling Node/DOM libs into a Workers-scoped project.
-  "include": ["src/**/*", "scripts/**/*"],
+  "include": ["src/**/*", "scripts/**/*", "worker-configuration.d.ts"],
   "exclude": ["node_modules", "dist", "*.config.ts"]
 }

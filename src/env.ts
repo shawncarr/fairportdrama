@@ -1,4 +1,5 @@
 import type { Actor } from '~/lib/audit/actor';
+import type { AppRole } from '~/db/schema/governance';
 
 export interface Bindings {
   DB: D1Database;
@@ -24,6 +25,10 @@ export interface Variables {
    * to `system` rather than to a null user.
    */
   actor: Actor;
+  /** Null for anonymous requests and for accounts with no role granted. */
+  role: AppRole | null;
+  /** Null for board members and volunteers, who hold no public profile. */
+  memberId: string | null;
 }
 
 export type AppEnv = { Bindings: Bindings; Variables: Variables };

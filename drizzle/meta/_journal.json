@@ -8,6 +8,13 @@
       "when": 1785438190222,
       "tag": "0000_init_content_and_governance",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785444837167,
+      "tag": "0001_add_auth_tables",
+      "breakpoints": true
     }
   ]
 }
