@@ -11,7 +11,9 @@
     "cf-typegen": "wrangler types",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply fairport-drama-db --local",
-    "db:migrate": "wrangler d1 migrations apply fairport-drama-db --remote"
+    "db:migrate": "wrangler d1 migrations apply fairport-drama-db --remote",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [],
   "author": "",
@@ -25,12 +27,14 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.19.1",
     "@cloudflare/workers-types": "^5.20260730.1",
     "@tailwindcss/cli": "^4.3.3",
     "@types/luxon": "^3.7.2",
     "drizzle-kit": "^0.31.10",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
+    "vitest": "^4.1.10",
     "wrangler": "^4.116.0"
   },
   "allowScripts": {

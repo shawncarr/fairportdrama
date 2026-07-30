@@ -18,6 +18,9 @@
       "~/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*", "scripts/**/*", "*.ts", "*.tsx"],
-  "exclude": ["node_modules", "dist"]
+  // Build config (vite/vitest/drizzle-kit) runs in Node, not workerd, and is
+  // typechecked by the tools that execute it. Including it here would require
+  // pulling Node/DOM libs into a Workers-scoped project.
+  "include": ["src/**/*", "scripts/**/*"],
+  "exclude": ["node_modules", "dist", "*.config.ts"]
 }
