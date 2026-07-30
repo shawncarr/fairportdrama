@@ -1,0 +1,345 @@
+@import 'tailwindcss';
+
+/* Class detection sources. The CSS lives in src/styles, so Tailwind's
+ * automatic detection would only scan that directory. */
+@source '../**/*.tsx';
+
+
+/* Fairport Drama Club Color Theme */
+@theme {
+  /* Primary - Fairport Red */
+  --color-primary-50: #fef2f2;
+  --color-primary-100: #fee2e2;
+  --color-primary-200: #fecaca;
+  --color-primary-300: #fca5a5;
+  --color-primary-400: #f87171;
+  --color-primary-500: #ef4444;
+  --color-primary-600: #cc0000;
+  --color-primary-700: #b91c1c;
+  --color-primary-800: #991b1b;
+  --color-primary-900: #7f1d1d;
+  --color-primary-950: #450a0a;
+
+  /* Secondary - Deep Maroon */
+  --color-secondary-50: #fdf2f4;
+  --color-secondary-100: #fce7ea;
+  --color-secondary-200: #f9d0d9;
+  --color-secondary-300: #f4a9b8;
+  --color-secondary-400: #ec7a93;
+  --color-secondary-500: #df4d6f;
+  --color-secondary-600: #cb2d56;
+  --color-secondary-700: #ab2046;
+  --color-secondary-800: #8f1d3f;
+  --color-secondary-900: #5c1229;
+  --color-secondary-950: #3d0a1a;
+
+  /* Accent - Gold for energy */
+  --color-accent-50: #fffbeb;
+  --color-accent-100: #fef3c7;
+  --color-accent-200: #fde68a;
+  --color-accent-300: #fcd34d;
+  --color-accent-400: #fbbf24;
+  --color-accent-500: #f59e0b;
+  --color-accent-600: #d97706;
+  --color-accent-700: #b45309;
+  --color-accent-800: #92400e;
+  --color-accent-900: #78350f;
+  --color-accent-950: #451a03;
+
+  /* Neutral - Warm grays */
+  --color-neutral-50: #fafaf9;
+  --color-neutral-100: #f5f5f4;
+  --color-neutral-200: #e7e5e4;
+  --color-neutral-300: #d6d3d1;
+  --color-neutral-400: #a8a29e;
+  --color-neutral-500: #78716c;
+  --color-neutral-600: #57534e;
+  --color-neutral-700: #44403c;
+  --color-neutral-800: #292524;
+  --color-neutral-900: #1c1917;
+  --color-neutral-950: #0c0a09;
+
+  /* Font families */
+  --font-display: 'Poppins', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Base styles */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-body);
+    background-color: var(--color-neutral-50);
+    color: var(--color-neutral-900);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display);
+    font-weight: 700;
+  }
+
+  /* Reduced motion support */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* Focus styles for accessibility */
+  :focus-visible {
+    outline: 2px solid var(--color-primary-600);
+    outline-offset: 2px;
+  }
+}
+
+/* Skip to content link for accessibility */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-primary-600);
+  color: white;
+  padding: 12px 24px;
+  border-radius: 0 0 8px 8px;
+  z-index: 9999;
+  font-weight: 600;
+  text-decoration: none;
+  transition: top 0.3s ease-in-out;
+  box-shadow:
+    0 4px 6px -1px rgb(0 0 0 / 0.1),
+    0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+.skip-link:focus {
+  top: 0;
+  outline: none;
+}
+
+/* View Transitions API animations
+ *
+ * Cross-document view transitions replace Astro's ClientRouter. The browser
+ * drives these natively across real navigations, so no client-side router is
+ * needed; unsupported browsers simply get ordinary page loads. The
+ * ::view-transition rules below are unchanged from the Astro site. */
+@view-transition {
+  navigation: auto;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes slide-from-right {
+  from {
+    transform: translateX(30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-to-left {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-30px);
+    opacity: 0;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Default page transition */
+::view-transition-old(root) {
+  animation: 200ms cubic-bezier(0.4, 0, 0.2, 1) both fade-out;
+}
+
+::view-transition-new(root) {
+  animation: 300ms cubic-bezier(0.4, 0, 0.2, 1) both fade-in;
+}
+
+/* Staggered content animations on page load */
+.animate-on-scroll {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity 0.6s ease-out,
+    transform 0.6s ease-out;
+}
+
+.animate-on-scroll.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Hero section specific transition */
+[data-transition='hero'] {
+  view-transition-name: hero;
+}
+
+::view-transition-old(hero) {
+  animation: 300ms cubic-bezier(0.4, 0, 0.2, 1) both slide-to-left;
+}
+
+::view-transition-new(hero) {
+  animation: 400ms cubic-bezier(0.4, 0, 0.2, 1) both slide-from-right;
+}
+
+/* Card hover animations */
+.card-hover {
+  transition:
+    transform 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 20px 25px -5px rgb(0 0 0 / 0.1),
+    0 8px 10px -6px rgb(0 0 0 / 0.1);
+}
+
+/* Button press animation */
+.btn-press:active {
+  transform: scale(0.98);
+}
+
+/* Respect reduced motion preferences for view transitions */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root),
+  ::view-transition-old(hero),
+  ::view-transition-new(hero) {
+    animation: none;
+  }
+
+  .animate-on-scroll {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* Article prose enhancements */
+.prose-article {
+  /* Headings */
+  & h2 {
+    margin-top: 2em;
+    margin-bottom: 0.75em;
+    padding-bottom: 0.5em;
+    border-bottom: 1px solid var(--color-neutral-200);
+  }
+
+  & h3 {
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+  }
+
+  /* Paragraphs */
+  & p {
+    margin-bottom: 1.25em;
+    line-height: 1.8;
+  }
+
+  /* Lists */
+  & ul,
+  & ol {
+    margin-bottom: 1.5em;
+    padding-left: 1.5em;
+  }
+
+  & li {
+    margin-bottom: 0.5em;
+  }
+
+  /* Blockquotes */
+  & blockquote {
+    border-left: 4px solid var(--color-primary-500);
+    background: var(--color-neutral-50);
+    padding: 1rem 1.5rem;
+    border-radius: 0 0.5rem 0.5rem 0;
+    font-style: normal;
+    margin: 1.5em 0;
+  }
+
+  & blockquote p:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Links */
+  & a {
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+    transition: color 0.2s ease;
+  }
+
+  /* Images in content */
+  & img {
+    border-radius: 0.75rem;
+    box-shadow:
+      0 4px 6px -1px rgb(0 0 0 / 0.1),
+      0 2px 4px -2px rgb(0 0 0 / 0.1);
+  }
+
+  /* Code blocks */
+  & pre {
+    border-radius: 0.5rem;
+    margin: 1.5em 0;
+  }
+
+  & code {
+    font-size: 0.9em;
+  }
+
+  /* Horizontal rule */
+  & hr {
+    border-color: var(--color-neutral-200);
+    margin: 2em 0;
+  }
+}
+
+/* Hero background pattern */
+.hero-pattern {
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}

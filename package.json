@@ -1,0 +1,43 @@
+{
+  "name": "fairportdrama",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "dev": "npm run build:css && wrangler dev",
+    "build:css": "tailwindcss -i ./src/styles/global.css -o ./public/static/global.css --minify",
+    "build:css:watch": "tailwindcss -i ./src/styles/global.css -o ./public/static/global.css --watch",
+    "deploy": "npm run build:css && wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply fairport-drama-db --local",
+    "db:migrate": "wrangler d1 migrations apply fairport-drama-db --remote"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "better-auth": "^1.6.25",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.32",
+    "luxon": "^3.7.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260730.1",
+    "@tailwindcss/cli": "^4.3.3",
+    "@types/luxon": "^3.7.2",
+    "drizzle-kit": "^0.31.10",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.116.0"
+  },
+  "allowScripts": {
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.1": true,
+    "workerd@1.20260730.1": true
+  },
+  "private": true
+}

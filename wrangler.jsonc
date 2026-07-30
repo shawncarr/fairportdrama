@@ -1,0 +1,62 @@
+{
+  // Cloudflare Workers configuration for the Fairport Drama Club site.
+  //
+  // NOTE: this Worker deploys under its own name and workers.dev URL. The
+  // fairportdrama.com custom domain stays on the existing `fairport-drama`
+  // Worker until cutover.
+  "name": "fairport-drama-next",
+  "compatibility_date": "2026-07-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "./src/index.tsx",
+  "workers_dev": true,
+
+  // Static assets: compiled CSS, favicon, and images not served by
+  // Cloudflare Images. `npm run build:css` writes into public/static.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+  },
+
+  "observability": {
+    "enabled": true,
+  },
+
+  // Same D1 instance as the current site. It holds live newsletter
+  // subscribers; new tables are added by migration, never recreated.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "fairport-drama-db",
+      "database_id": "901d34db-5887-4721-aa26-ca8473b1bfe8",
+      "migrations_dir": "drizzle",
+    },
+  ],
+
+  // Sessions and the global cache version stamp.
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "PLACEHOLDER_CREATE_WITH_WRANGLER_KV_NAMESPACE_CREATE",
+    },
+  ],
+
+  "images": {
+    "binding": "IMAGES",
+  },
+
+  "vars": {
+    "SITE_URL": "https://fairportdrama.com",
+  },
+
+  // Secrets, set via `wrangler secret put`:
+  //   RESEND_API_KEY          - contact form email
+  //   CONTACT_EMAIL           - contact form destination
+  //   TURNSTILE_SECRET_KEY    - contact form spam check
+  //   BETTER_AUTH_SECRET      - session signing
+  //   GOOGLE_CLIENT_ID        - Google SSO
+  //   GOOGLE_CLIENT_SECRET    - Google SSO
+  //   CF_IMAGES_ACCOUNT_ID    - Direct Creator Upload
+  //   CF_IMAGES_API_TOKEN     - Direct Creator Upload
+  //
+  // Local development uses .dev.vars (gitignored).
+}
