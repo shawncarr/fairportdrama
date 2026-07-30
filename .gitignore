@@ -20,3 +20,7 @@ worker-configuration.d.ts
 # editor / OS
 .DS_Store
 .idea/
+
+# generated migration artifacts
+seed/content.sql
+seed/image-manifest.json
