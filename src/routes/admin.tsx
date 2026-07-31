@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { AppEnv } from '~/env';
 import { getDb } from '~/db/queries';
-import { members, MEMBER_VISIBILITY } from '~/db/schema/content';
+import { members, news, MEMBER_VISIBILITY, NEWS_CATEGORY } from '~/db/schema/content';
 import {
   APP_ROLE,
   auditEvents,
@@ -26,6 +26,13 @@ import { displayName } from '~/lib/member-display';
 import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import { writeWithAudit } from '~/lib/audit/write';
 import { createInvite, inviteStatus, revokeInvite } from '~/services/invites';
+import {
+  NEWS_CATEGORY_LABELS,
+  createNewsPost,
+  deleteNewsPost,
+  isNewsCategory,
+  updateNewsPost,
+} from '~/services/news';
 
 export const adminRoutes = new Hono<AppEnv>();
 
@@ -1048,5 +1055,292 @@ adminRoutes.post(
   async (c) => {
     await revokeInvite(getDb(c.env.DB), c.get('actor'), c.req.param('id'));
     return c.redirect('/admin/accounts', 302);
+  },
+);
+
+// ---------------------------------------------------------------- news
+
+adminRoutes.get('/admin/news', requirePermission('news', 'create'), async (c) => {
+  const db = getDb(c.env.DB);
+  const posts = await db.select().from(news).orderBy(desc(news.publishedAt));
+
+  return c.render(
+    <div class="space-y-6">
+      <div class="flex items-center justify-between">
+        <h1 class="font-display text-2xl font-bold text-neutral-900">News</h1>
+        <a
+          href="/admin/news/new"
+          class="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
+        >
+          Write a post
+        </a>
+      </div>
+
+      {posts.length === 0 ? (
+        <p class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 text-neutral-600">
+          No posts yet. The News section of the site stays hidden until there is
+          something to show.
+        </p>
+      ) : (
+        <div class="bg-white rounded-xl ring-1 ring-neutral-200 overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-neutral-50 text-left">
+              <tr>
+                <th class="px-4 py-3 font-medium text-neutral-600">Title</th>
+                <th class="px-4 py-3 font-medium text-neutral-600">Category</th>
+                <th class="px-4 py-3 font-medium text-neutral-600">Date</th>
+                <th class="px-4 py-3 font-medium text-neutral-600">Status</th>
+                <th class="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-neutral-100">
+              {posts.map((post) => (
+                <tr>
+                  <td class="px-4 py-2 text-neutral-900">{post.title}</td>
+                  <td class="px-4 py-2 text-neutral-600">
+                    {NEWS_CATEGORY_LABELS[post.category]}
+                  </td>
+                  <td class="px-4 py-2 text-neutral-500">{post.publishedAt}</td>
+                  <td class="px-4 py-2">
+                    <span
+                      class={`px-2 py-0.5 rounded-full text-xs ${
+                        post.isDraft
+                          ? 'bg-neutral-100 text-neutral-600'
+                          : 'bg-green-100 text-green-800'
+                      }`}
+                    >
+                      {post.isDraft ? 'draft' : 'published'}
+                    </span>
+                  </td>
+                  <td class="px-4 py-2 text-right">
+                    <a
+                      href={`/admin/news/${post.id}`}
+                      class="text-sm text-primary-600 hover:text-primary-700"
+                    >
+                      Edit
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>,
+    { title: 'News' },
+  );
+});
+
+const newsForm = (
+  post: {
+    id?: string;
+    title?: string;
+    excerpt?: string;
+    bodyMd?: string;
+    category?: string;
+    publishedAt?: string;
+    isDraft?: boolean;
+  },
+  action: string,
+) => (
+  <form method="post" action={action} class="space-y-5 max-w-2xl">
+    <div>
+      <label for="title" class="block text-sm font-medium text-neutral-700 mb-1">
+        Title
+      </label>
+      <input
+        type="text"
+        id="title"
+        name="title"
+        required
+        maxlength={200}
+        value={post.title ?? ''}
+        class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+      />
+      {post.id && (
+        <p class="text-xs text-neutral-500 mt-1">
+          The web address stays <code>/news/{post.id}</code> even if you change the
+          title, so links people have already shared keep working.
+        </p>
+      )}
+    </div>
+
+    <div>
+      <label for="excerpt" class="block text-sm font-medium text-neutral-700 mb-1">
+        Summary
+      </label>
+      <textarea
+        id="excerpt"
+        name="excerpt"
+        required
+        rows={2}
+        maxlength={300}
+        class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+      >
+        {post.excerpt ?? ''}
+      </textarea>
+      <p class="text-xs text-neutral-500 mt-1">
+        Shown on the news list and when the post is shared.
+      </p>
+    </div>
+
+    <div>
+      <label for="bodyMd" class="block text-sm font-medium text-neutral-700 mb-1">
+        Post
+      </label>
+      <textarea
+        id="bodyMd"
+        name="bodyMd"
+        required
+        rows={14}
+        class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 font-mono text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+      >
+        {post.bodyMd ?? ''}
+      </textarea>
+    </div>
+
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div>
+        <label for="category" class="block text-sm font-medium text-neutral-700 mb-1">
+          Category
+        </label>
+        <select
+          id="category"
+          name="category"
+          class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 bg-white"
+        >
+          {Object.entries(NEWS_CATEGORY_LABELS).map(([value, label]) => (
+            <option value={value} selected={post.category === value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label for="publishedAt" class="block text-sm font-medium text-neutral-700 mb-1">
+          Date
+        </label>
+        <input
+          type="date"
+          id="publishedAt"
+          name="publishedAt"
+          required
+          value={(post.publishedAt ?? '').slice(0, 10)}
+          class="w-full px-4 py-2.5 rounded-lg border border-neutral-300"
+        />
+      </div>
+    </div>
+
+    <label class="flex items-center gap-2 text-sm text-neutral-700">
+      <input type="checkbox" name="publish" checked={post.isDraft === false} />
+      Publish this post to the website
+    </label>
+
+    <div class="flex gap-3">
+      <button
+        type="submit"
+        class="px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
+      >
+        Save
+      </button>
+      <a
+        href="/admin/news"
+        class="px-6 py-2.5 bg-neutral-200 hover:bg-neutral-300 text-neutral-800 font-medium rounded-lg transition-colors"
+      >
+        Cancel
+      </a>
+    </div>
+  </form>
+);
+
+adminRoutes.get('/admin/news/new', requirePermission('news', 'create'), (c) =>
+  c.render(
+    <div class="space-y-6">
+      <h1 class="font-display text-2xl font-bold text-neutral-900">Write a post</h1>
+      {newsForm(
+        { publishedAt: new Date().toISOString().slice(0, 10), isDraft: true },
+        '/admin/news/new',
+      )}
+    </div>,
+    { title: 'Write a post' },
+  ),
+);
+
+const readNewsForm = async (c: { req: { formData: () => Promise<FormData> } }) => {
+  const form = await c.req.formData();
+  const category = String(form.get('category') ?? '');
+  return {
+    title: String(form.get('title') ?? '').trim(),
+    excerpt: String(form.get('excerpt') ?? '').trim(),
+    bodyMd: String(form.get('bodyMd') ?? '').trim(),
+    category: isNewsCategory(category) ? category : NEWS_CATEGORY.General,
+    publishedAt: String(form.get('publishedAt') ?? '').slice(0, 10),
+    isDraft: !form.get('publish'),
+  };
+};
+
+adminRoutes.post('/admin/news/new', requirePermission('news', 'create'), async (c) => {
+  const input = await readNewsForm(c);
+  if (!input.title || !input.excerpt || !input.bodyMd) {
+    return c.redirect('/admin/news/new', 302);
+  }
+  await createNewsPost(getDb(c.env.DB), c.get('actor'), input);
+  return c.redirect('/admin/news', 302);
+});
+
+adminRoutes.get('/admin/news/:id', requirePermission('news', 'update'), async (c) => {
+  const db = getDb(c.env.DB);
+  const [post] = await db.select().from(news).where(eq(news.id, c.req.param('id'))).limit(1);
+  if (!post) return c.notFound();
+
+  return c.render(
+    <div class="space-y-6">
+      <div class="flex items-center justify-between">
+        <h1 class="font-display text-2xl font-bold text-neutral-900">Edit post</h1>
+        {!post.isDraft && (
+          <a
+            href={`/news/${post.id}`}
+            class="text-sm text-primary-600 hover:text-primary-700"
+          >
+            View on site
+          </a>
+        )}
+      </div>
+
+      {newsForm(post, `/admin/news/${post.id}`)}
+
+      <form
+        method="post"
+        action={`/admin/news/${post.id}/delete`}
+        class="pt-6 border-t border-neutral-200 max-w-2xl"
+      >
+        <label class="flex items-center gap-2 text-sm text-neutral-700 mb-2">
+          <input type="checkbox" name="confirm" required />
+          Yes, permanently delete this post
+        </label>
+        <button type="submit" class="text-sm text-red-600 hover:text-red-700">
+          Delete post
+        </button>
+      </form>
+    </div>,
+    { title: 'Edit post' },
+  );
+});
+
+adminRoutes.post('/admin/news/:id', requirePermission('news', 'update'), async (c) => {
+  const input = await readNewsForm(c);
+  await updateNewsPost(getDb(c.env.DB), c.get('actor'), c.req.param('id'), input);
+  return c.redirect('/admin/news', 302);
+});
+
+adminRoutes.post(
+  '/admin/news/:id/delete',
+  requirePermission('news', 'delete'),
+  async (c) => {
+    const form = await c.req.formData();
+    if (!form.get('confirm')) return c.redirect(`/admin/news/${c.req.param('id')}`, 302);
+    await deleteNewsPost(getDb(c.env.DB), c.get('actor'), c.req.param('id'));
+    return c.redirect('/admin/news', 302);
   },
 );
