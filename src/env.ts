@@ -11,6 +11,8 @@ export interface Bindings {
 
   CONTACT_EMAIL: string;
   TURNSTILE_SECRET_KEY: string;
+  /** Public widget key. Not a secret - it is rendered into the page. */
+  PUBLIC_TURNSTILE_SITE_KEY: string;
   BETTER_AUTH_SECRET: string;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
