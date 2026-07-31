@@ -14,7 +14,7 @@ import {
 import { SponsorGrid, type SponsorView } from '~/components/SponsorGrid';
 import { ShareButtons } from '~/components/ShareButtons';
 import { IMAGE_VARIANT, imageUrl, ogImageUrl } from '~/lib/images';
-import { formatShowDates } from '~/lib/dates';
+import { formatShowDates, hasClosed } from '~/lib/dates';
 import type { ShowCastTier } from '~/db/schema/content';
 
 export const showRoutes = new Hono<AppEnv>();
@@ -93,15 +93,18 @@ showRoutes.get('/shows/:slug', async (c) => {
     getSponsors(db, { showId: show.id }),
   ]);
 
+  const closed = hasClosed(performances);
+
   const heroUrl = imageUrl(show.heroImageId, IMAGE_VARIANT.Hero);
   const posterUrl = imageUrl(show.posterImageId, IMAGE_VARIANT.Poster);
 
   // The Astro version rendered this entire page twice - once in a red gradient
   // for the current show and once in grey for past ones - which is most of why
   // that file reached 960 lines. The only real difference is the palette.
-  const gradient = show.isCurrent
-    ? 'from-primary-600 via-primary-700 to-secondary-800'
-    : 'from-neutral-800 via-neutral-700 to-neutral-900';
+  const gradient =
+    show.isCurrent && !closed
+      ? 'from-primary-600 via-primary-700 to-secondary-800'
+      : 'from-neutral-800 via-neutral-700 to-neutral-900';
 
   const shareUrl = new URL(`/shows/${show.id}`, c.env.SITE_URL).toString();
 
@@ -147,7 +150,13 @@ showRoutes.get('/shows/:slug', async (c) => {
                 </ul>
               )}
 
-              {show.isCurrent && show.ticketUrl && (
+              {closed && (
+                <p class="inline-block px-4 py-2 rounded-lg bg-white/10 text-white/80 text-sm">
+                  This run has ended.
+                </p>
+              )}
+
+              {show.isCurrent && !closed && show.ticketUrl && (
                 <a
                   href={show.ticketUrl}
                   class="inline-flex items-center justify-center px-8 py-3 bg-accent-500 hover:bg-accent-600 text-neutral-900 font-semibold rounded-lg transition-colors shadow-lg"

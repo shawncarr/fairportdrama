@@ -38,6 +38,11 @@ home.get('/', async (c) => {
               <div class="text-center lg:text-left">
                 <p class="text-accent-400 font-semibold text-sm uppercase tracking-wider mb-4">
                   {currentShow.season}
+                  {currentShow.state === 'closed' && (
+                    <span class="ml-2 text-white/60 normal-case tracking-normal font-normal">
+                      &middot; This run has ended
+                    </span>
+                  )}
                 </p>
                 <h1 class="font-display text-4xl sm:text-5xl lg:text-6xl font-bold mb-4">
                   {currentShow.title}
@@ -58,7 +63,18 @@ home.get('/', async (c) => {
                 </div>
 
                 <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-                  {currentShow.ticketUrl ? (
+                  {/* A finished run never shows a ticket link. Selling tickets
+                      to a show that already closed is worse than showing
+                      nothing, and the stored isCurrent flag cannot be relied on
+                      to have been cleared. */}
+                  {currentShow.state === 'closed' ? (
+                    <a
+                      href="/shows/past"
+                      class="inline-flex items-center justify-center px-8 py-3 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-lg transition-colors backdrop-blur-sm"
+                    >
+                      Browse Past Shows
+                    </a>
+                  ) : currentShow.ticketUrl ? (
                     <a
                       href={currentShow.ticketUrl}
                       class="inline-flex items-center justify-center px-8 py-3 bg-accent-500 hover:bg-accent-600 text-neutral-900 font-semibold rounded-lg transition-colors shadow-lg hover:shadow-xl"
@@ -79,13 +95,36 @@ home.get('/', async (c) => {
                 </div>
               </div>
 
-              {performances.length > 0 && (
+              {/* Counting down to a date that has passed is noise, so a closed
+                  run gets a closing note in the same slot instead. */}
+              {currentShow.state === 'closed' ? (
                 <div class="flex justify-center lg:justify-end">
-                  <CountdownTimer
-                    targetDate={performances[0]!.date}
-                    showTitle={currentShow.title}
-                  />
+                  <div class="bg-white/10 backdrop-blur-sm rounded-2xl p-8 text-center max-w-sm">
+                    <p class="font-display text-2xl font-bold text-white mb-2">
+                      That&rsquo;s a wrap
+                    </p>
+                    <p class="text-white/70 text-sm">
+                      {currentShow.title} closed on{' '}
+                      {formatDate(currentShow.lastPerformance ?? '')}. Thank you to
+                      everyone who came out.
+                    </p>
+                    <a
+                      href={`/shows/${currentShow.id}`}
+                      class="inline-block mt-4 text-accent-400 hover:text-accent-300 text-sm font-medium"
+                    >
+                      See the cast and crew
+                    </a>
+                  </div>
                 </div>
+              ) : (
+                performances.length > 0 && (
+                  <div class="flex justify-center lg:justify-end">
+                    <CountdownTimer
+                      targetDate={performances[0]!.date}
+                      showTitle={currentShow.title}
+                    />
+                  </div>
+                )
               )}
             </div>
           </div>
@@ -234,7 +273,7 @@ home.get('/', async (c) => {
         </div>
       </section>
 
-      {currentShow && performances.length > 0 && countdownScript()}
+      {currentShow?.state === 'running' && performances.length > 0 && countdownScript()}
     </>,
     {
       title: 'Home',

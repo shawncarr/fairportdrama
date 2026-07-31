@@ -1,5 +1,5 @@
 import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, or, sql } from 'drizzle-orm';
 import * as schema from './schema';
 import {
   MEMBER_VISIBILITY,
@@ -21,9 +21,69 @@ export const getDb = (binding: D1Database): DB => drizzle(binding, { schema });
 
 // ---------------------------------------------------------------- shows
 
+/**
+ * The last scheduled performance date for a show, as a correlated subquery.
+ *
+ * Show state is derived from this rather than from the stored `isCurrent`
+ * flag alone. The flag is an editorial choice - "feature this show" - and it
+ * drifts: the spring 2026 production stayed flagged current for five months
+ * after closing, so the homepage went on advertising tickets for a show that
+ * had already run.
+ */
+// The outer column reference is written literally rather than interpolated.
+// Drizzle renders `${shows.id}` inside a raw sql template as an unqualified
+// `"id"`, which inside this subquery binds to show_performances.id instead of
+// shows.id - so the correlation silently matched nothing and returned NULL for
+// every row rather than failing.
+const lastPerformanceDate = sql<string | null>`(
+  SELECT MAX(p.date) FROM show_performances p WHERE p.show_id = ${sql.raw('"shows"."id"')}
+)`;
+
+/** Today in the club's timezone, as a bare ISO date for comparison. */
+const today = () =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+
+export type ShowState = 'running' | 'closed';
+
+/**
+ * The featured show, with whether its run has finished.
+ *
+ * A closed show is still returned: the homepage keeps showing it, but as an
+ * ended run rather than an upcoming one. Hiding it outright the morning after
+ * closing night would be more surprising than marking it over.
+ */
 export async function getCurrentShow(db: DB) {
-  const [row] = await db.select().from(shows).where(eq(shows.isCurrent, true)).limit(1);
-  return row ?? null;
+  const [row] = await db
+    .select({
+      id: shows.id,
+      title: shows.title,
+      season: shows.season,
+      year: shows.year,
+      venue: shows.venue,
+      synopsis: shows.synopsis,
+      ticketUrl: shows.ticketUrl,
+      posterImageId: shows.posterImageId,
+      heroImageId: shows.heroImageId,
+      ogImageId: shows.ogImageId,
+      isCurrent: shows.isCurrent,
+      isHighlighted: shows.isHighlighted,
+      lastPerformance: lastPerformanceDate,
+    })
+    .from(shows)
+    .where(eq(shows.isCurrent, true))
+    .limit(1);
+
+  if (!row) return null;
+
+  const state: ShowState =
+    row.lastPerformance && row.lastPerformance < today() ? 'closed' : 'running';
+
+  return { ...row, state };
 }
 
 export async function getShow(db: DB, id: string) {
@@ -31,11 +91,25 @@ export async function getShow(db: DB, id: string) {
   return row ?? null;
 }
 
+/**
+ * Shows that have finished.
+ *
+ * Includes a show still flagged `isCurrent` whose run has ended. Without that,
+ * closing a show would drop it into limbo - no longer promoted on the
+ * homepage, but absent from the archive too - until someone remembered to
+ * clear the flag by hand.
+ */
 export async function getPastShows(db: DB, opts: { highlightedOnly?: boolean } = {}) {
-  const where = opts.highlightedOnly
-    ? and(eq(shows.isCurrent, false), eq(shows.isHighlighted, true))
-    : eq(shows.isCurrent, false);
-  return db.select().from(shows).where(where).orderBy(desc(shows.year));
+  const finished = or(
+    eq(shows.isCurrent, false),
+    sql`${lastPerformanceDate} IS NOT NULL AND ${lastPerformanceDate} < ${today()}`,
+  );
+
+  return db
+    .select()
+    .from(shows)
+    .where(opts.highlightedOnly ? and(finished, eq(shows.isHighlighted, true)) : finished)
+    .orderBy(desc(shows.year));
 }
 
 export async function getPerformances(db: DB, showId: string) {
