@@ -3,6 +3,8 @@ import type { AppEnv } from '~/env';
 import { getDb, getNewsPost, getPublishedNews, getSpiritWear } from '~/db/queries';
 import { IMAGE_VARIANT, imageUrl } from '~/lib/images';
 import { formatDate } from '~/lib/dates';
+import { renderMarkdown } from '~/lib/markdown';
+import { raw } from 'hono/html';
 
 export const miscRoutes = new Hono<AppEnv>();
 
@@ -63,11 +65,11 @@ miscRoutes.get('/news/:slug', async (c) => {
 
       {image && <img src={image} alt="" class="w-full rounded-xl mb-8" />}
 
-      {/* Markdown rendering is deferred: the news collection is empty, so
-          there is no content to render and no way to verify a renderer
-          against real posts yet. */}
-      <div class="prose prose-neutral max-w-none whitespace-pre-wrap text-neutral-800">
-        {post.bodyMd}
+      {/* The renderer closes off raw HTML and filters link schemes, so this
+          markup can only be what marked generated from student-written
+          markdown. See src/lib/markdown.ts. */}
+      <div class="prose prose-neutral max-w-none text-neutral-800">
+        {raw(renderMarkdown(post.bodyMd))}
       </div>
     </article>,
     { title: post.title, description: post.excerpt, type: 'article', publishedDate: post.publishedAt },
