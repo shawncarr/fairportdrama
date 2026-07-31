@@ -1,0 +1,14 @@
+{
+  "_comment": "Image attribution data for photos used on the site. When replacing placeholder images with real photos, add attribution here.",
+  "attributions": [
+    {
+      "image": "/images/example.jpg",
+      "title": "Example Photo",
+      "photographer": "Photographer Name",
+      "photographerUrl": "https://unsplash.com/@username",
+      "source": "Unsplash",
+      "sourceUrl": "https://unsplash.com/photos/photo-id",
+      "license": "Unsplash License"
+    }
+  ]
+}

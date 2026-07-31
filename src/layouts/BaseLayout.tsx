@@ -1,5 +1,8 @@
 import { jsxRenderer } from 'hono/jsx-renderer';
 import { html, raw } from 'hono/html';
+import { Header } from '~/components/Header';
+import { Footer } from '~/components/Footer';
+import { newsletterScript } from '~/components/NewsletterForm';
 import {
   DEFAULT_OG_IMAGE,
   SITE_DESCRIPTION,
@@ -83,9 +86,15 @@ export const baseLayout = jsxRenderer(({ children, ...props }, c) => {
           Skip to main content
         </a>
 
+        <Header path={new URL(c.req.url).pathname} />
+
         <main id="main-content" class="flex-1">
           {children}
         </main>
+
+        <Footer year={new Date().getUTCFullYear()} />
+
+        {newsletterScript()}
       </body>
     </html>
   );
