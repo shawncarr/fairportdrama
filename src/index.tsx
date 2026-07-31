@@ -10,6 +10,7 @@ import { miscRoutes } from '~/routes/misc';
 import { apiRoutes } from '~/routes/api';
 import { aboutRoutes } from '~/routes/about';
 import { notFound, systemRoutes } from '~/routes/system';
+import { adminRoutes } from '~/routes/admin';
 
 const app = new Hono<AppEnv>();
 
@@ -21,6 +22,8 @@ app.all('/api/auth/*', (c) => createAuth(c.env).handler(c.req.raw));
 app.route('/', apiRoutes);
 
 app.use('*', actorMiddleware);
+app.route('/', adminRoutes);
+
 app.use('*', baseLayout);
 
 app.route('/', home);
