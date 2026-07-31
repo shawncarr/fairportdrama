@@ -14,6 +14,7 @@ const SPONSOR_TIERS = [
 ] as const;
 
 aboutRoutes.get('/about/sponsors', async (c) => {
+  const images = c.get('images');
   const sponsors = await getSponsors(getDb(c.env.DB));
 
   return c.render(
@@ -29,7 +30,7 @@ aboutRoutes.get('/about/sponsors', async (c) => {
           <h2 class="font-display text-2xl font-semibold text-neutral-900 mb-8">
             Thank You to Our Supporters
           </h2>
-          <SponsorGrid sponsors={sponsors as SponsorView[]} showTierHeaders />
+          <SponsorGrid sponsors={sponsors as SponsorView[]} images={images} showTierHeaders />
         </section>
       )}
 

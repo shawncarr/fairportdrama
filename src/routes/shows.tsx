@@ -13,7 +13,7 @@ import {
 } from '~/db/queries';
 import { SponsorGrid, type SponsorView } from '~/components/SponsorGrid';
 import { ShareButtons } from '~/components/ShareButtons';
-import { IMAGE_VARIANT, imageUrl, ogImageUrl } from '~/lib/images';
+import { IMAGE_VARIANT, ogImageUrl } from '~/lib/images';
 import { formatShowDates, hasClosed } from '~/lib/dates';
 import type { ShowCastTier } from '~/db/schema/content';
 
@@ -34,6 +34,7 @@ showRoutes.get('/shows/current', async (c) => {
 
 showRoutes.get('/shows/past', async (c) => {
   const db = getDb(c.env.DB);
+  const images = c.get('images');
   const shows = await getPastShows(db);
 
   return c.render(
@@ -48,7 +49,7 @@ showRoutes.get('/shows/past', async (c) => {
       ) : (
         <div class="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
           {shows.map((show) => {
-            const poster = imageUrl(show.posterImageId, IMAGE_VARIANT.Poster);
+            const poster = images.deliveryUrl(show.posterImageId, IMAGE_VARIANT.Poster);
             return (
               <a
                 href={`/shows/${show.id}`}
@@ -82,6 +83,7 @@ showRoutes.get('/shows/past', async (c) => {
 
 showRoutes.get('/shows/:slug', async (c) => {
   const db = getDb(c.env.DB);
+  const images = c.get('images');
   const show = await getShow(db, c.req.param('slug'));
   if (!show) return c.notFound();
 
@@ -95,8 +97,8 @@ showRoutes.get('/shows/:slug', async (c) => {
 
   const closed = hasClosed(performances);
 
-  const heroUrl = imageUrl(show.heroImageId, IMAGE_VARIANT.Hero);
-  const posterUrl = imageUrl(show.posterImageId, IMAGE_VARIANT.Poster);
+  const heroUrl = images.deliveryUrl(show.heroImageId, IMAGE_VARIANT.Hero);
+  const posterUrl = images.deliveryUrl(show.posterImageId, IMAGE_VARIANT.Poster);
 
   // The Astro version rendered this entire page twice - once in a red gradient
   // for the current show and once in grey for past ones - which is most of why
@@ -245,7 +247,7 @@ showRoutes.get('/shows/:slug', async (c) => {
             <h2 class="font-display text-2xl font-bold text-neutral-900 mb-8">Gallery</h2>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
               {gallery.map((image) => {
-                const url = imageUrl(image.imageId, IMAGE_VARIANT.Gallery);
+                const url = images.deliveryUrl(image.imageId, IMAGE_VARIANT.Gallery);
                 return url ? (
                   <img
                     src={url}
@@ -269,7 +271,7 @@ showRoutes.get('/shows/:slug', async (c) => {
             <p class="text-neutral-600 text-center mb-8">
               This production was made possible by these supporters.
             </p>
-            <SponsorGrid sponsors={sponsors as SponsorView[]} />
+            <SponsorGrid sponsors={sponsors as SponsorView[]} images={images} />
           </div>
         </section>
       )}
@@ -288,7 +290,7 @@ showRoutes.get('/shows/:slug', async (c) => {
       description: show.synopsis,
       type: 'event',
       image:
-        ogImageUrl({
+        ogImageUrl(images, {
           og: show.ogImageId,
           hero: show.heroImageId,
           poster: show.posterImageId,

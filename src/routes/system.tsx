@@ -158,3 +158,24 @@ export const notFound = (c: Parameters<Parameters<Hono<AppEnv>['notFound']>[0]>[
     { title: 'Page Not Found' },
   );
 };
+
+/**
+ * Dev-only image delivery.
+ *
+ * Serves bytes held by the local KV shim. Registered unconditionally but a
+ * no-op in production, where the store is Cloudflare Images and never returns
+ * bytes through the Worker - delivery URLs point at imagedelivery.net instead,
+ * so nothing routes here.
+ */
+systemRoutes.get('/dev/images/:id/:variant', async (c) => {
+  const store = c.get('images');
+  const image = await store.get(c.req.param('id'));
+  if (!image) return c.notFound();
+
+  return c.body(image.body, 200, {
+    'Content-Type': image.contentType,
+    // Short cache: local images are replaced during development, and a long
+    // cache would hide that.
+    'Cache-Control': 'public, max-age=60',
+  });
+});

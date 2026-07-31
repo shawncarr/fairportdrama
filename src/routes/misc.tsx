@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '~/env';
 import { getDb, getNewsPost, getPublishedNews, getSpiritWear } from '~/db/queries';
-import { IMAGE_VARIANT, imageUrl } from '~/lib/images';
+import { IMAGE_VARIANT } from '~/lib/images';
 import { formatDate } from '~/lib/dates';
 import { renderMarkdown } from '~/lib/markdown';
 import { raw } from 'hono/html';
@@ -45,10 +45,11 @@ miscRoutes.get('/news', async (c) => {
 });
 
 miscRoutes.get('/news/:slug', async (c) => {
+  const images = c.get('images');
   const post = await getNewsPost(getDb(c.env.DB), c.req.param('slug'));
   if (!post) return c.notFound();
 
-  const image = imageUrl(post.featuredImageId, IMAGE_VARIANT.Hero);
+  const image = images.deliveryUrl(post.featuredImageId, IMAGE_VARIANT.Hero);
 
   return c.render(
     <article class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-16">
@@ -79,6 +80,7 @@ miscRoutes.get('/news/:slug', async (c) => {
 // ---------------------------------------------------------------- spirit wear
 
 miscRoutes.get('/spiritwear', async (c) => {
+  const images = c.get('images');
   const items = await getSpiritWear(getDb(c.env.DB));
 
   return c.render(
@@ -93,7 +95,7 @@ miscRoutes.get('/spiritwear', async (c) => {
       ) : (
         <div class="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
           {items.map((item) => {
-            const image = imageUrl(item.imageId, IMAGE_VARIANT.Gallery);
+            const image = images.deliveryUrl(item.imageId, IMAGE_VARIANT.Gallery);
             return (
               <div class="bg-white rounded-xl ring-1 ring-neutral-200 overflow-hidden">
                 <div class="aspect-square bg-neutral-100">

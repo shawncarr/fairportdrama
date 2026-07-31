@@ -1,5 +1,6 @@
 import type { Actor } from '~/lib/audit/actor';
 import type { AppRole } from '~/db/schema/governance';
+import type { ImageStore } from '~/lib/images';
 
 export interface Bindings {
   DB: D1Database;
@@ -18,6 +19,8 @@ export interface Bindings {
   GOOGLE_CLIENT_SECRET: string;
   CF_IMAGES_ACCOUNT_ID: string;
   CF_IMAGES_API_TOKEN: string;
+  /** Appears in every public delivery URL, so a var rather than a secret. */
+  CF_IMAGES_ACCOUNT_HASH: string;
 }
 
 export interface Variables {
@@ -31,6 +34,8 @@ export interface Variables {
   role: AppRole | null;
   /** Null for board members and volunteers, who hold no public profile. */
   memberId: string | null;
+  /** Cloudflare Images when configured, otherwise the local KV shim. */
+  images: ImageStore;
 }
 
 export type AppEnv = { Bindings: Bindings; Variables: Variables };

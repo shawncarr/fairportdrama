@@ -64,6 +64,12 @@
 
   "vars": {
     "SITE_URL": "https://fairportdrama.com",
+    // Appears in every public image URL, so a var rather than a secret.
+    // While this is the placeholder the app falls back to the KV-backed local
+    // image shim, so development works before an Images plan exists. Setting a
+    // real hash switches every delivery URL to imagedelivery.net with no other
+    // change.
+    "CF_IMAGES_ACCOUNT_HASH": "PLACEHOLDER_IMAGES_ACCOUNT_HASH",
   },
 
   // Secrets, set via `wrangler secret put`:

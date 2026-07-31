@@ -4,13 +4,14 @@ import { getDb, getCurrentShow, getPastShows, getPerformances, getPublishedNews,
 import { CountdownTimer, countdownScript } from '~/components/CountdownTimer';
 import { NewsletterForm } from '~/components/NewsletterForm';
 import { SponsorGrid, type SponsorView } from '~/components/SponsorGrid';
-import { IMAGE_VARIANT, imageUrl, ogImageUrl } from '~/lib/images';
+import { IMAGE_VARIANT, ogImageUrl } from '~/lib/images';
 import { formatShowDates, formatDate } from '~/lib/dates';
 
 export const home = new Hono<AppEnv>();
 
 home.get('/', async (c) => {
   const db = getDb(c.env.DB);
+  const images = c.get('images');
 
   const currentShow = await getCurrentShow(db);
   const [performances, pastShows, latestNews, sponsors] = await Promise.all([
@@ -20,7 +21,7 @@ home.get('/', async (c) => {
     getSponsors(db, { showId: null }),
   ]);
 
-  const heroUrl = imageUrl(currentShow?.heroImageId, IMAGE_VARIANT.Hero);
+  const heroUrl = images.deliveryUrl(currentShow?.heroImageId, IMAGE_VARIANT.Hero);
 
   return c.render(
     <>
@@ -207,7 +208,7 @@ home.get('/', async (c) => {
             </div>
             <div class="grid gap-8 md:grid-cols-3">
               {pastShows.slice(0, 3).map((show) => {
-                const poster = imageUrl(show.posterImageId, IMAGE_VARIANT.Poster);
+                const poster = images.deliveryUrl(show.posterImageId, IMAGE_VARIANT.Poster);
                 return (
                   <a
                     href={`/shows/${show.id}`}
@@ -248,7 +249,7 @@ home.get('/', async (c) => {
                 Local businesses that make our productions possible.
               </p>
             </div>
-            <SponsorGrid sponsors={sponsors as SponsorView[]} />
+            <SponsorGrid sponsors={sponsors as SponsorView[]} images={images} />
             <div class="text-center mt-8">
               <a
                 href="/about/sponsors"
@@ -281,7 +282,7 @@ home.get('/', async (c) => {
         ? `${currentShow.title} - ${currentShow.season}. ${currentShow.synopsis}`
         : undefined,
       image:
-        ogImageUrl({
+        ogImageUrl(images, {
           og: currentShow?.ogImageId,
           hero: currentShow?.heroImageId,
           poster: currentShow?.posterImageId,

@@ -2,6 +2,7 @@ import { createMiddleware } from 'hono/factory';
 import type { AppEnv } from '~/env';
 import { createAuth } from '~/lib/auth';
 import { AUDIT_ACTOR_KIND, systemActor, type Actor } from '~/lib/audit/actor';
+import { getImageStore } from '~/lib/images';
 import type { AppRole } from '~/db/schema/governance';
 
 /**
@@ -48,6 +49,7 @@ export const actorMiddleware = createMiddleware<AppEnv>(async (c, next) => {
     // through as the system actor with no role, which grants nothing.
   }
 
+  c.set('images', getImageStore(c.env, c.req.url));
   c.set('actor', actor);
   c.set('role', role);
   c.set('memberId', memberId);

@@ -1,12 +1,13 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '~/env';
 import { getActiveMembers, getDb, getMemberShows, getPublicMemberProfile } from '~/db/queries';
-import { IMAGE_VARIANT, imageUrl } from '~/lib/images';
+import { IMAGE_VARIANT, type ImageStore } from '~/lib/images';
 import { roleDisplayName } from '~/lib/roles';
 
 export const memberRoutes = new Hono<AppEnv>();
 
 memberRoutes.get('/members', async (c) => {
+  const images = c.get('images');
   const members = await getActiveMembers(getDb(c.env.DB));
   const officers = members.filter((m) => m.isOfficer);
   const rest = members.filter((m) => !m.isOfficer);
@@ -25,7 +26,7 @@ memberRoutes.get('/members', async (c) => {
           </h2>
           <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {officers.map((m) => (
-              <MemberCard member={m} />
+              <MemberCard member={m} images={images} />
             ))}
           </div>
         </section>
@@ -37,7 +38,7 @@ memberRoutes.get('/members', async (c) => {
         )}
         <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {rest.map((m) => (
-            <MemberCard member={m} />
+            <MemberCard member={m} images={images} />
           ))}
         </div>
       </section>
@@ -51,6 +52,7 @@ memberRoutes.get('/members', async (c) => {
 
 memberRoutes.get('/members/:slug', async (c) => {
   const db = getDb(c.env.DB);
+  const images = c.get('images');
 
   // Returns null for members who have not opted in, so the route 404s. The
   // slug itself is the full name, so serving a redacted page at this URL
@@ -59,7 +61,7 @@ memberRoutes.get('/members/:slug', async (c) => {
   if (!member) return c.notFound();
 
   const shows = await getMemberShows(db, member.id);
-  const photo = imageUrl(member.photoImageId, IMAGE_VARIANT.Thumb);
+  const photo = images.deliveryUrl(member.photoImageId, IMAGE_VARIANT.Thumb);
 
   return c.render(
     <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-16">
@@ -130,7 +132,9 @@ memberRoutes.get('/members/:slug', async (c) => {
  */
 function MemberCard({
   member,
+  images,
 }: {
+  images: ImageStore;
   member: {
     id: string;
     name: string;
@@ -140,7 +144,7 @@ function MemberCard({
     officerTitle: string | null;
   };
 }) {
-  const photo = imageUrl(member.photoImageId, IMAGE_VARIANT.Thumb);
+  const photo = images.deliveryUrl(member.photoImageId, IMAGE_VARIANT.Thumb);
 
   const body = (
     <div class="bg-white rounded-xl ring-1 ring-neutral-200 overflow-hidden h-full hover:ring-primary-300 transition-all">

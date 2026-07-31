@@ -1,4 +1,4 @@
-import { IMAGE_VARIANT, imageUrl } from '~/lib/images';
+import { IMAGE_VARIANT, type ImageStore } from '~/lib/images';
 import type { SponsorTier } from '~/db/schema/content';
 
 export interface SponsorView {
@@ -26,8 +26,8 @@ const TIER_SIZES: Record<SponsorTier, string> = {
   bronze: 'h-14 lg:h-16',
 };
 
-function SponsorCard({ sponsor }: { sponsor: SponsorView }) {
-  const logo = imageUrl(sponsor.logoImageId, IMAGE_VARIANT.Thumb);
+function SponsorCard({ sponsor, images }: { sponsor: SponsorView; images: ImageStore }) {
+  const logo = images.deliveryUrl(sponsor.logoImageId, IMAGE_VARIANT.Thumb);
 
   const inner = (
     <div class="flex items-center justify-center p-6 bg-white rounded-lg ring-1 ring-neutral-200 hover:ring-primary-300 transition-all h-full">
@@ -63,9 +63,11 @@ function SponsorCard({ sponsor }: { sponsor: SponsorView }) {
 
 export function SponsorGrid({
   sponsors,
+  images,
   showTierHeaders = false,
 }: {
   sponsors: SponsorView[];
+  images: ImageStore;
   showTierHeaders?: boolean;
 }) {
   if (sponsors.length === 0) return null;
@@ -74,7 +76,7 @@ export function SponsorGrid({
     return (
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         {sponsors.map((s) => (
-          <SponsorCard sponsor={s} />
+          <SponsorCard sponsor={s} images={images} />
         ))}
       </div>
     );
@@ -92,7 +94,7 @@ export function SponsorGrid({
             </h3>
             <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
               {inTier.map((s) => (
-                <SponsorCard sponsor={s} />
+                <SponsorCard sponsor={s} images={images} />
               ))}
             </div>
           </div>

@@ -20,7 +20,8 @@
     "seed:apply:local": "wrangler d1 execute fairport-drama-db --local --file seed/content.sql",
     "seed:apply": "wrangler d1 execute fairport-drama-db --remote --file seed/content.sql",
     "seed:verify": "node scripts/verify-seed.mjs",
-    "images:upload": "node scripts/upload-images.mjs"
+    "images:upload": "node scripts/upload-images.mjs",
+    "images:local": "node scripts/load-local-images.mjs"
   },
   "keywords": [],
   "author": "",
