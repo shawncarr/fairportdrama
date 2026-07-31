@@ -3,7 +3,14 @@ import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { AppEnv } from '~/env';
 import { getDb } from '~/db/queries';
 import { members, MEMBER_VISIBILITY } from '~/db/schema/content';
-import { auditEvents, pendingEdits, PENDING_EDIT_STATUS } from '~/db/schema/governance';
+import {
+  APP_ROLE,
+  auditEvents,
+  invites,
+  pendingEdits,
+  PENDING_EDIT_STATUS,
+  type AppRole,
+} from '~/db/schema/governance';
 import { user } from '~/db/schema/auth';
 import { adminLayout } from '~/layouts/AdminLayout';
 import { noStore, requirePermission, requireSignIn } from '~/middleware/require';
@@ -18,6 +25,7 @@ import {
 import { displayName } from '~/lib/member-display';
 import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import { writeWithAudit } from '~/lib/audit/write';
+import { createInvite, inviteStatus, revokeInvite } from '~/services/invites';
 
 export const adminRoutes = new Hono<AppEnv>();
 
@@ -783,5 +791,262 @@ adminRoutes.post(
     }
 
     return c.redirect(`/admin/members?changed=${changed}`, 302);
+  },
+);
+
+// ---------------------------------------------------------------- accounts
+
+adminRoutes.get('/admin/accounts', requirePermission('account', 'invite'), async (c) => {
+  const db = getDb(c.env.DB);
+
+  const [allInvites, accounts, unlinkedMembers] = await Promise.all([
+    db.select().from(invites).orderBy(desc(invites.createdAt)).limit(100),
+    db
+      .select({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        memberId: user.memberId,
+      })
+      .from(user)
+      .orderBy(user.email),
+    db
+      .select({ id: members.id, name: members.name, grade: members.grade })
+      .from(members)
+      .where(eq(members.isActive, true))
+      .orderBy(members.name),
+  ]);
+
+  const error = c.req.query('error');
+  const sent = c.req.query('sent');
+
+  return c.render(
+    <div class="space-y-8">
+      <h1 class="font-display text-2xl font-bold text-neutral-900">Accounts</h1>
+
+      {error && (
+        <p class="rounded-lg bg-red-50 text-red-800 text-sm px-4 py-3 ring-1 ring-red-200">
+          {error}
+        </p>
+      )}
+      {sent === 'ok' && (
+        <p class="rounded-lg bg-green-50 text-green-800 text-sm px-4 py-3 ring-1 ring-green-200">
+          Invitation sent.
+        </p>
+      )}
+      {sent === 'nomail' && (
+        <p class="rounded-lg bg-amber-50 text-amber-900 text-sm px-4 py-3 ring-1 ring-amber-200">
+          The invite was created but the email could not be sent. The person can still
+          sign in with that address; you may want to tell them directly.
+        </p>
+      )}
+
+      <section class="bg-white rounded-xl ring-1 ring-neutral-200 p-6">
+        <h2 class="font-display font-semibold text-neutral-900 mb-1">Invite someone</h2>
+        <p class="text-sm text-neutral-600 mb-4">
+          Access is invitation-only. Send the invite to the address they will actually
+          sign in with - a school Google account will only match if the address is the
+          same.
+        </p>
+
+        <form method="post" action="/admin/accounts/invite" class="grid gap-4 sm:grid-cols-3">
+          <div class="sm:col-span-3">
+            <label for="inv-email" class="block text-sm font-medium text-neutral-700 mb-1">
+              Email address
+            </label>
+            <input
+              type="email"
+              id="inv-email"
+              name="email"
+              required
+              class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label for="inv-role" class="block text-sm font-medium text-neutral-700 mb-1">
+              Role
+            </label>
+            <select
+              id="inv-role"
+              name="role"
+              class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 bg-white"
+            >
+              <option value="member">Member - own profile only</option>
+              <option value="officer">Officer - news, cast lists, approvals</option>
+              <option value="staff">Staff - everything except accounts</option>
+              <option value="admin">Admin - everything</option>
+            </select>
+          </div>
+
+          <div class="sm:col-span-2">
+            <label for="inv-member" class="block text-sm font-medium text-neutral-700 mb-1">
+              Link to a member profile (optional)
+            </label>
+            <select
+              id="inv-member"
+              name="memberId"
+              class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 bg-white"
+            >
+              <option value="">No profile - board member or volunteer</option>
+              {unlinkedMembers.map((m) => (
+                <option value={m.id}>
+                  {m.name} ({m.grade})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div class="sm:col-span-3">
+            <button
+              type="submit"
+              class="px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
+            >
+              Send invitation
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section>
+        <h2 class="font-display font-semibold text-neutral-900 mb-3">Invitations</h2>
+        {allInvites.length === 0 ? (
+          <p class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 text-neutral-600">
+            No invitations yet.
+          </p>
+        ) : (
+          <div class="bg-white rounded-xl ring-1 ring-neutral-200 overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-neutral-50 text-left">
+                <tr>
+                  <th class="px-4 py-3 font-medium text-neutral-600">Email</th>
+                  <th class="px-4 py-3 font-medium text-neutral-600">Role</th>
+                  <th class="px-4 py-3 font-medium text-neutral-600">Profile</th>
+                  <th class="px-4 py-3 font-medium text-neutral-600">Status</th>
+                  <th class="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-neutral-100">
+                {allInvites.map((inv) => {
+                  const status = inviteStatus(inv);
+                  return (
+                    <tr>
+                      <td class="px-4 py-2 text-neutral-900">{inv.email}</td>
+                      <td class="px-4 py-2 text-neutral-600">{inv.role}</td>
+                      <td class="px-4 py-2 text-neutral-500">{inv.memberId ?? '—'}</td>
+                      <td class="px-4 py-2">
+                        <span
+                          class={`px-2 py-0.5 rounded-full text-xs ${
+                            status === 'open'
+                              ? 'bg-green-100 text-green-800'
+                              : status === 'accepted'
+                                ? 'bg-neutral-100 text-neutral-600'
+                                : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {status}
+                        </span>
+                      </td>
+                      <td class="px-4 py-2 text-right">
+                        {status === 'open' && (
+                          <form method="post" action={`/admin/accounts/${inv.id}/revoke`}>
+                            <button
+                              type="submit"
+                              class="text-sm text-red-600 hover:text-red-700"
+                            >
+                              Revoke
+                            </button>
+                          </form>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h2 class="font-display font-semibold text-neutral-900 mb-3">Existing accounts</h2>
+        {accounts.length === 0 ? (
+          <p class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 text-neutral-600">
+            Nobody has signed in yet.
+          </p>
+        ) : (
+          <div class="bg-white rounded-xl ring-1 ring-neutral-200 overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-neutral-50 text-left">
+                <tr>
+                  <th class="px-4 py-3 font-medium text-neutral-600">Email</th>
+                  <th class="px-4 py-3 font-medium text-neutral-600">Name</th>
+                  <th class="px-4 py-3 font-medium text-neutral-600">Role</th>
+                  <th class="px-4 py-3 font-medium text-neutral-600">Profile</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-neutral-100">
+                {accounts.map((a) => (
+                  <tr>
+                    <td class="px-4 py-2 text-neutral-900">{a.email}</td>
+                    <td class="px-4 py-2 text-neutral-600">{a.name}</td>
+                    <td class="px-4 py-2 text-neutral-600">{a.role ?? 'none'}</td>
+                    <td class="px-4 py-2 text-neutral-500">{a.memberId ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>,
+    { title: 'Accounts' },
+  );
+});
+
+adminRoutes.post(
+  '/admin/accounts/invite',
+  requirePermission('account', 'invite'),
+  async (c) => {
+    const form = await c.req.formData();
+    const role = String(form.get('role') ?? '');
+    const memberId = String(form.get('memberId') ?? '').trim();
+
+    const validRoles: string[] = [
+      APP_ROLE.Admin,
+      APP_ROLE.Staff,
+      APP_ROLE.Officer,
+      APP_ROLE.Member,
+    ];
+    if (!validRoles.includes(role)) {
+      return c.redirect('/admin/accounts?error=Pick+a+valid+role', 302);
+    }
+
+    const result = await createInvite(
+      getDb(c.env.DB),
+      c.get('actor'),
+      c.env.EMAIL,
+      c.env.SITE_URL,
+      {
+        email: String(form.get('email') ?? ''),
+        role: role as AppRole,
+        memberId: memberId.length > 0 ? memberId : null,
+      },
+    );
+
+    if (!result.ok) {
+      return c.redirect(`/admin/accounts?error=${encodeURIComponent(result.error)}`, 302);
+    }
+    return c.redirect(`/admin/accounts?sent=${result.emailed ? 'ok' : 'nomail'}`, 302);
+  },
+);
+
+adminRoutes.post(
+  '/admin/accounts/:id/revoke',
+  requirePermission('account', 'revoke'),
+  async (c) => {
+    await revokeInvite(getDb(c.env.DB), c.get('actor'), c.req.param('id'));
+    return c.redirect('/admin/accounts', 302);
   },
 );

@@ -135,9 +135,17 @@ describe('a signed-in officer', () => {
     expect(body).toContain('Your name is recorded');
   });
 
-  it('cannot reach account management', async () => {
+  // Account management is Admin-only: officers are students, and inviting
+  // accounts is how access itself is granted.
+  it('is refused account management', async () => {
     const cookie = await signIn('officer@example.com', APP_ROLE.Officer, null);
-    expect((await get('/admin/accounts', cookie)).status).toBe(404);
+    expect((await get('/admin/accounts', cookie)).status).toBe(403);
+  });
+
+  it('sees no accounts link in the nav', async () => {
+    const cookie = await signIn('officer@example.com', APP_ROLE.Officer, null);
+    const body = await (await get('/admin', cookie)).text();
+    expect(body).not.toContain('href="/admin/accounts"');
   });
 });
 
