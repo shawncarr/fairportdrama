@@ -2,7 +2,15 @@ import { Hono } from 'hono';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { AppEnv } from '~/env';
 import { getDb } from '~/db/queries';
-import { members, news, MEMBER_VISIBILITY, NEWS_CATEGORY } from '~/db/schema/content';
+import {
+  members,
+  news,
+  showCast,
+  showCrew,
+  shows,
+  MEMBER_VISIBILITY,
+  NEWS_CATEGORY,
+} from '~/db/schema/content';
 import {
   APP_ROLE,
   auditEvents,
@@ -26,6 +34,7 @@ import { displayName } from '~/lib/member-display';
 import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import { writeWithAudit } from '~/lib/audit/write';
 import { createInvite, inviteStatus, revokeInvite } from '~/services/invites';
+import { replaceCast, replaceCrew } from '~/services/casting';
 import {
   NEWS_CATEGORY_LABELS,
   createNewsPost,
@@ -1342,5 +1351,211 @@ adminRoutes.post(
     if (!form.get('confirm')) return c.redirect(`/admin/news/${c.req.param('id')}`, 302);
     await deleteNewsPost(getDb(c.env.DB), c.get('actor'), c.req.param('id'));
     return c.redirect('/admin/news', 302);
+  },
+);
+
+// ---------------------------------------------------------------- shows
+
+adminRoutes.get('/admin/shows', requirePermission('cast', 'assign'), async (c) => {
+  const db = getDb(c.env.DB);
+  const all = await db.select().from(shows).orderBy(desc(shows.year));
+
+  return c.render(
+    <div class="space-y-6">
+      <h1 class="font-display text-2xl font-bold text-neutral-900">Shows</h1>
+      <div class="bg-white rounded-xl ring-1 ring-neutral-200 overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-neutral-50 text-left">
+            <tr>
+              <th class="px-4 py-3 font-medium text-neutral-600">Show</th>
+              <th class="px-4 py-3 font-medium text-neutral-600">Season</th>
+              <th class="px-4 py-3 font-medium text-neutral-600">Featured</th>
+              <th class="px-4 py-3" />
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-neutral-100">
+            {all.map((show) => (
+              <tr>
+                <td class="px-4 py-2 text-neutral-900">{show.title}</td>
+                <td class="px-4 py-2 text-neutral-500">{show.season}</td>
+                <td class="px-4 py-2 text-neutral-500">{show.isCurrent ? 'yes' : '—'}</td>
+                <td class="px-4 py-2 text-right">
+                  <a
+                    href={`/admin/shows/${show.id}`}
+                    class="text-sm text-primary-600 hover:text-primary-700"
+                  >
+                    Cast &amp; crew
+                  </a>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>,
+    { title: 'Shows' },
+  );
+});
+
+adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (c) => {
+  const db = getDb(c.env.DB);
+  const showId = c.req.param('id');
+
+  const [show] = await db.select().from(shows).where(eq(shows.id, showId)).limit(1);
+  if (!show) return c.notFound();
+
+  const [cast, crew, roster] = await Promise.all([
+    db.select().from(showCast).where(eq(showCast.showId, showId)).orderBy(showCast.sortOrder),
+    db.select().from(showCrew).where(eq(showCrew.showId, showId)).orderBy(showCrew.sortOrder),
+    db
+      .select({ id: members.id, name: members.name, grade: members.grade })
+      .from(members)
+      .where(eq(members.isActive, true))
+      .orderBy(members.name),
+  ]);
+
+  // Blank rows so roles can be added without any client-side scripting. The
+  // form is plain HTML, which keeps it usable on a school Chromebook with
+  // whatever browser and connection it has.
+  const castRows = [
+    ...cast.map((r) => ({ role: r.role, memberId: r.memberId, tier: r.tier })),
+    ...Array.from({ length: 5 }, () => ({ role: '', memberId: null, tier: 'ensemble' })),
+  ];
+  const crewRows = [
+    ...crew.map((r) => ({ role: r.role, memberId: r.memberId })),
+    ...Array.from({ length: 5 }, () => ({ role: '', memberId: null })),
+  ];
+
+  const MemberSelect = ({ name, value }: { name: string; value: string | null }) => (
+    <select name={name} class="w-full px-2 py-1.5 rounded border border-neutral-300 bg-white text-sm">
+      <option value="" selected={!value}>
+        TBA
+      </option>
+      {roster.map((m) => (
+        <option value={m.id} selected={value === m.id}>
+          {m.name}
+        </option>
+      ))}
+    </select>
+  );
+
+  return c.render(
+    <div class="space-y-8">
+      <div>
+        <a href="/admin/shows" class="text-sm text-primary-600 hover:text-primary-700">
+          &larr; All shows
+        </a>
+        <h1 class="font-display text-2xl font-bold text-neutral-900 mt-2">{show.title}</h1>
+        <p class="text-neutral-500 text-sm">{show.season}</p>
+      </div>
+
+      <p class="rounded-lg bg-neutral-50 ring-1 ring-neutral-200 px-4 py-3 text-sm text-neutral-700">
+        Leave a role set to <strong>TBA</strong> if it is not cast yet - the part still
+        shows on the site, which tells the audience it exists. Clearing the role name
+        removes the row entirely.
+      </p>
+
+      <form method="post" action={`/admin/shows/${show.id}/cast`} class="space-y-3">
+        <h2 class="font-display font-semibold text-neutral-900">Cast</h2>
+        <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-4 space-y-2">
+          {castRows.map((row) => (
+            <div class="grid grid-cols-12 gap-2 items-center">
+              <input
+                type="text"
+                name="role"
+                value={row.role}
+                placeholder="Role name"
+                class="col-span-5 px-2 py-1.5 rounded border border-neutral-300 text-sm"
+              />
+              <div class="col-span-4">
+                <MemberSelect name="memberId" value={row.memberId} />
+              </div>
+              <select
+                name="tier"
+                class="col-span-3 px-2 py-1.5 rounded border border-neutral-300 bg-white text-sm"
+              >
+                {(['lead', 'supporting', 'ensemble'] as const).map((t) => (
+                  <option value={t} selected={row.tier === t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+        <button
+          type="submit"
+          class="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
+        >
+          Save cast
+        </button>
+      </form>
+
+      <form method="post" action={`/admin/shows/${show.id}/crew`} class="space-y-3">
+        <h2 class="font-display font-semibold text-neutral-900">Production team</h2>
+        <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-4 space-y-2">
+          {crewRows.map((row) => (
+            <div class="grid grid-cols-12 gap-2 items-center">
+              <input
+                type="text"
+                name="role"
+                value={row.role}
+                placeholder="Job (e.g. Stage Manager)"
+                class="col-span-6 px-2 py-1.5 rounded border border-neutral-300 text-sm"
+              />
+              <div class="col-span-6">
+                <MemberSelect name="memberId" value={row.memberId} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <button
+          type="submit"
+          class="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
+        >
+          Save production team
+        </button>
+      </form>
+    </div>,
+    { title: show.title },
+  );
+});
+
+adminRoutes.post(
+  '/admin/shows/:id/cast',
+  requirePermission('cast', 'assign'),
+  async (c) => {
+    const form = await c.req.formData();
+    const roles = form.getAll('role').map(String);
+    const memberIds = form.getAll('memberId').map(String);
+    const tiers = form.getAll('tier').map(String);
+
+    const rows = roles.map((role, i) => ({
+      role,
+      memberId: memberIds[i] ? memberIds[i]! : null,
+      tier: (tiers[i] ?? 'ensemble') as 'lead' | 'supporting' | 'ensemble',
+      additionalRoles: [] as string[],
+    }));
+
+    await replaceCast(getDb(c.env.DB), c.get('actor'), c.req.param('id'), rows);
+    return c.redirect(`/admin/shows/${c.req.param('id')}`, 302);
+  },
+);
+
+adminRoutes.post(
+  '/admin/shows/:id/crew',
+  requirePermission('cast', 'assign'),
+  async (c) => {
+    const form = await c.req.formData();
+    const roles = form.getAll('role').map(String);
+    const memberIds = form.getAll('memberId').map(String);
+
+    const rows = roles.map((role, i) => ({
+      role,
+      memberId: memberIds[i] ? memberIds[i]! : null,
+    }));
+
+    await replaceCrew(getDb(c.env.DB), c.get('actor'), c.req.param('id'), rows);
+    return c.redirect(`/admin/shows/${c.req.param('id')}`, 302);
   },
 );

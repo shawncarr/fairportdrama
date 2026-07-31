@@ -26,10 +26,8 @@ const NAV: NavItem[] = [
     label: 'Accounts',
     visible: (r) => can(r, 'account', 'invite'),
   },
+  { href: '/admin/shows', label: 'Shows', visible: (r) => can(r, 'cast', 'assign') },
   { href: '/admin/news', label: 'News', visible: (r) => can(r, 'news', 'create') },
-  // The Shows editor is not built yet. Deliberately absent rather than
-  // present-and-broken: a nav link that 404s reads as a bug in something that
-  // exists.
   { href: '/admin/audit', label: 'Activity', visible: (r) => can(r, 'audit', 'readOwn') },
 ];
 
