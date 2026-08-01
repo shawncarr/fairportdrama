@@ -1,12 +1,10 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import app from '~/index';
 import { getDb } from '~/db/queries';
 import { members, shows, MEMBER_VISIBILITY } from '~/db/schema/content';
-import { invites, pendingEdits, APP_ROLE, type AppRole } from '~/db/schema/governance';
-import { generateId } from '~/lib/id';
-import { createAuth } from '~/lib/auth';
+import { pendingEdits, APP_ROLE } from '~/db/schema/governance';
+import { get, post, resetTables, signIn } from '~/test/session';
 
 /**
  * The upload path, end to end through a real session.
@@ -26,60 +24,6 @@ const GIF_BYTES = new Uint8Array([
   0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b,
 ]);
 
-async function signIn(email: string, role: AppRole, memberId: string | null) {
-  await db()
-    .insert(invites)
-    .values({
-      id: generateId(),
-      email,
-      role,
-      memberId,
-      token: generateId(),
-      expiresAt: new Date(Date.now() + 7 * 864e5).toISOString(),
-      createdByUserId: 'seed',
-      createdAt: new Date().toISOString(),
-    });
-
-  const auth = createAuth(env as never);
-  await auth.api
-    .signInMagicLink({ body: { email, callbackURL: '/admin' }, headers: new Headers() })
-    .catch(() => undefined);
-
-  const pending = await db().select().from((await import('~/db/schema/auth')).verification);
-  const match = pending.find((v) => String(v.value).includes(email.toLowerCase()));
-  if (!match) throw new Error('no magic link issued');
-
-  const response = await auth.handler(
-    new Request(
-      `https://fairportdrama.com/api/auth/magic-link/verify?token=${match.identifier}&callbackURL=/admin`,
-      { redirect: 'manual' },
-    ),
-  );
-  const cookie = response.headers.get('set-cookie');
-  if (!cookie) throw new Error('no session cookie issued');
-  return cookie.split(';')[0]!;
-}
-
-const post = (path: string, cookie: string, form: FormData) =>
-  app.fetch(
-    new Request(`https://fairportdrama.com${path}`, {
-      method: 'POST',
-      headers: { cookie },
-      body: form,
-      redirect: 'manual',
-    }),
-    env,
-  );
-
-const get = (path: string, cookie?: string) =>
-  app.fetch(
-    new Request(`https://fairportdrama.com${path}`, {
-      headers: cookie ? { cookie } : {},
-      redirect: 'manual',
-    }),
-    env,
-  );
-
 const imageFile = (data: Uint8Array, name = 'photo.gif', type = 'image/gif') =>
   new File([data as BufferSource], name, { type });
 
@@ -94,21 +38,7 @@ const profileForm = (over: Record<string, string | File> = {}) => {
 };
 
 beforeEach(async () => {
-  for (const table of [
-    'audit_events',
-    'pending_edits',
-    'invites',
-    'session',
-    'account',
-    'user',
-    'verification',
-    'show_cast',
-    'show_crew',
-    'shows',
-    'members',
-  ]) {
-    await env.DB.exec(`DELETE FROM ${table}`);
-  }
+  await resetTables(['show_cast', 'show_crew', 'shows', 'members']);
 
   await db().insert(members).values({
     id: 'daniel-doser',

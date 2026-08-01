@@ -11,6 +11,7 @@ import { apiRoutes } from '~/routes/api';
 import { aboutRoutes } from '~/routes/about';
 import { notFound, systemRoutes } from '~/routes/system';
 import { adminRoutes } from '~/routes/admin';
+import { adminCatalogRoutes } from '~/routes/admin-catalog';
 
 const app = new Hono<AppEnv>();
 
@@ -23,6 +24,7 @@ app.route('/', apiRoutes);
 
 app.use('*', actorMiddleware);
 app.route('/', adminRoutes);
+app.route('/', adminCatalogRoutes);
 
 app.use('*', baseLayout);
 

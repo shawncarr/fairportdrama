@@ -28,6 +28,16 @@ const NAV: NavItem[] = [
   },
   { href: '/admin/shows', label: 'Shows', visible: (r) => can(r, 'cast', 'assign') },
   { href: '/admin/news', label: 'News', visible: (r) => can(r, 'news', 'create') },
+  {
+    href: '/admin/sponsors',
+    label: 'Sponsors',
+    visible: (r) => can(r, 'sponsor', 'manage'),
+  },
+  {
+    href: '/admin/spiritwear',
+    label: 'Spirit Wear',
+    visible: (r) => can(r, 'spiritwear', 'manage'),
+  },
   { href: '/admin/audit', label: 'Activity', visible: (r) => can(r, 'audit', 'readOwn') },
 ];
 
