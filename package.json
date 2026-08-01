@@ -41,6 +41,7 @@
     "@tailwindcss/cli": "^4.3.3",
     "@types/luxon": "^3.7.2",
     "drizzle-kit": "^0.31.10",
+    "happy-dom": "^20.11.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",

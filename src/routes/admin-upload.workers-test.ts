@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { getDb } from '~/db/queries';
-import { members, shows, MEMBER_VISIBILITY } from '~/db/schema/content';
+import { members, showGalleryImages, shows, MEMBER_VISIBILITY } from '~/db/schema/content';
 import { pendingEdits, APP_ROLE } from '~/db/schema/governance';
 import { get, post, resetTables, signIn } from '~/test/session';
 
@@ -38,7 +38,7 @@ const profileForm = (over: Record<string, string | File> = {}) => {
 };
 
 beforeEach(async () => {
-  await resetTables(['show_cast', 'show_crew', 'shows', 'members']);
+  await resetTables(['show_cast', 'show_crew', 'show_gallery_images', 'shows', 'members']);
 
   await db().insert(members).values({
     id: 'daniel-doser',
@@ -167,5 +167,103 @@ describe('show artwork', () => {
     // rather than shown and then 403ing on submit.
     expect(body).toContain('Cast');
     expect(body).not.toContain('/images');
+  });
+});
+
+describe('show gallery', () => {
+  const galleryForm = (files: File[], acknowledged = true) => {
+    const form = new FormData();
+    for (const f of files) form.append('photos', f);
+    if (acknowledged) form.set('acknowledged', '1');
+    return form;
+  };
+
+  const photos = () => db().select().from(showGalleryImages);
+
+  it('uploads several photos in one submission', async () => {
+    const cookie = await signIn('director@example.com', APP_ROLE.Staff);
+
+    const response = await post(
+      '/admin/shows/charlottes-web/gallery',
+      cookie,
+      galleryForm([imageFile(GIF_BYTES, 'a.gif'), imageFile(GIF_BYTES, 'b.gif')]),
+    );
+    expect(response.status).toBe(302);
+    expect(await photos()).toHaveLength(2);
+  });
+
+  it('publishes nothing without the permission acknowledgement', async () => {
+    const cookie = await signIn('director@example.com', APP_ROLE.Staff);
+
+    // The checkbox is marked required in the markup, but that is not a
+    // control - it is the only thing standing between a photo of a student
+    // and the public site, so the server has to enforce it.
+    const response = await post(
+      '/admin/shows/charlottes-web/gallery',
+      cookie,
+      galleryForm([imageFile(GIF_BYTES, 'a.gif')], false),
+    );
+    expect(response.headers.get('location')).toContain('error=');
+    expect(await photos()).toHaveLength(0);
+  });
+
+  it('rejects the batch if any file is not an image', async () => {
+    const cookie = await signIn('director@example.com', APP_ROLE.Staff);
+    const evil = new TextEncoder().encode('<svg onload="alert(1)"><script/></svg>');
+
+    const response = await post(
+      '/admin/shows/charlottes-web/gallery',
+      cookie,
+      galleryForm([imageFile(GIF_BYTES, 'a.gif'), imageFile(evil, 'b.gif')]),
+    );
+    expect(response.headers.get('location')).toContain('error=');
+    expect(await photos()).toHaveLength(0);
+  });
+
+  it('is refused to an officer, who cannot publish photos of students', async () => {
+    const cookie = await signIn('officer@example.com', APP_ROLE.Officer, 'daniel-doser');
+
+    const response = await post(
+      '/admin/shows/charlottes-web/gallery',
+      cookie,
+      galleryForm([imageFile(GIF_BYTES, 'a.gif')]),
+    );
+    expect(response.status).toBe(403);
+    expect(await photos()).toHaveLength(0);
+  });
+
+  it('serves an uploaded gallery photo and shows it on the public page', async () => {
+    const cookie = await signIn('director@example.com', APP_ROLE.Staff);
+    await post(
+      '/admin/shows/charlottes-web/gallery',
+      cookie,
+      galleryForm([imageFile(GIF_BYTES, 'a.gif')]),
+    );
+
+    const [row] = await photos();
+    const image = await get(`/dev/images/${row!.imageId}/gallery`);
+    expect(image.status).toBe(200);
+
+    const page = await (await get('/shows/charlottes-web')).text();
+    expect(page).toContain('Gallery');
+    // Alt text is generated, never a caption or a name.
+    expect(page).toContain("Charlotte&#39;s Web production photo 1 of 1");
+  });
+
+  it('removes a photo through its delete route', async () => {
+    const cookie = await signIn('director@example.com', APP_ROLE.Staff);
+    await post(
+      '/admin/shows/charlottes-web/gallery',
+      cookie,
+      galleryForm([imageFile(GIF_BYTES, 'a.gif')]),
+    );
+    const [row] = await photos();
+
+    await post(
+      `/admin/shows/charlottes-web/gallery/${row!.id}/delete`,
+      cookie,
+      new FormData(),
+    );
+    expect(await photos()).toHaveLength(0);
   });
 });

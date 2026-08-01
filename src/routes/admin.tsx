@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { AppEnv } from '~/env';
-import { getDb } from '~/db/queries';
+import { getDb, getGallery } from '~/db/queries';
 import {
   members,
   news,
@@ -37,6 +37,7 @@ import { writeWithAudit } from '~/lib/audit/write';
 import { createInvite, inviteStatus, revokeInvite } from '~/services/invites';
 import { replaceCast, replaceCrew } from '~/services/casting';
 import { updateShowImages } from '~/services/show-images';
+import { addGalleryImages, removeGalleryImage } from '~/services/gallery';
 import {
   NEWS_CATEGORY_LABELS,
   createNewsPost,
@@ -1546,7 +1547,7 @@ adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (
   const [show] = await db.select().from(shows).where(eq(shows.id, showId)).limit(1);
   if (!show) return c.notFound();
 
-  const [cast, crew, roster] = await Promise.all([
+  const [cast, crew, roster, gallery] = await Promise.all([
     db.select().from(showCast).where(eq(showCast.showId, showId)).orderBy(showCast.sortOrder),
     db.select().from(showCrew).where(eq(showCrew.showId, showId)).orderBy(showCrew.sortOrder),
     db
@@ -1554,6 +1555,7 @@ adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (
       .from(members)
       .where(eq(members.isActive, true))
       .orderBy(members.name),
+    getGallery(db, showId),
   ]);
 
   // Blank rows so roles can be added without any client-side scripting. The
@@ -1652,6 +1654,88 @@ adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (
           hero, then the poster, so the third slot is only needed to override that.
         </p>
       </form>
+      )}
+
+      {can(c.get('role')!, 'show', 'update') && (
+        <section class="space-y-3">
+          <h2 class="font-display font-semibold text-neutral-900">Gallery</h2>
+
+          <div class="rounded-lg bg-amber-50 text-amber-900 text-sm px-4 py-3 ring-1 ring-amber-200">
+            <strong>These photos show students.</strong> Only post pictures you have
+            permission to publish. A student listed privately on the members page has
+            asked not to be shown - putting their face in a gallery works against that,
+            even without a name. Your name is recorded on every photo added or removed.
+          </div>
+
+          {gallery.length > 0 && (
+            <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-4">
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {gallery.map((photo, i) => {
+                  const url = images.deliveryUrl(photo.imageId, IMAGE_VARIANT.Gallery);
+                  return (
+                    <div>
+                      {url && (
+                        <img
+                          src={url}
+                          alt={`Gallery photo ${i + 1}`}
+                          class="w-full aspect-square object-cover rounded-lg ring-1 ring-neutral-200"
+                        />
+                      )}
+                      <form
+                        method="post"
+                        action={`/admin/shows/${show.id}/gallery/${photo.id}/delete`}
+                        onsubmit="return confirm('Remove this photo?')"
+                      >
+                        <button
+                          type="submit"
+                          class="mt-1 w-full px-2 py-1 text-xs text-red-700 hover:bg-red-50 rounded transition-colors"
+                        >
+                          Remove
+                        </button>
+                      </form>
+                    </div>
+                  );
+                })}
+              </div>
+              <p class="text-xs text-neutral-500 mt-3">
+                Photos appear in the order shown, oldest first.
+              </p>
+            </div>
+          )}
+
+          <form
+            method="post"
+            action={`/admin/shows/${show.id}/gallery`}
+            enctype="multipart/form-data"
+            class="bg-white rounded-xl ring-1 ring-neutral-200 p-4 space-y-3"
+          >
+            <input
+              type="file"
+              name="photos"
+              multiple
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              class="w-full text-sm text-neutral-600 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-neutral-100 file:text-neutral-800 file:font-medium hover:file:bg-neutral-200"
+            />
+            <p class="text-xs text-neutral-500">
+              Pick several at once. JPEG, PNG, GIF, or WebP, up to{' '}
+              {MAX_IMAGE_BYTES / 1024 / 1024} MB each.
+            </p>
+
+            <label class="flex items-start gap-2 text-sm text-neutral-700">
+              <input type="checkbox" name="acknowledged" required class="mt-0.5" />
+              <span>
+                I have permission to publish photos of everyone shown in these pictures.
+              </span>
+            </label>
+
+            <button
+              type="submit"
+              class="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
+            >
+              Add photos
+            </button>
+          </form>
+        </section>
       )}
 
       <p class="rounded-lg bg-neutral-50 ring-1 ring-neutral-200 px-4 py-3 text-sm text-neutral-700">
@@ -1769,6 +1853,59 @@ adminRoutes.post(
 
     await updateShowImages(getDb(c.env.DB), c.get('actor'), showId, patch);
     return c.redirect(`/admin/shows/${showId}`, 302);
+  },
+);
+
+adminRoutes.post(
+  '/admin/shows/:id/gallery',
+  requirePermission('show', 'update'),
+  async (c) => {
+    const showId = c.req.param('id');
+    const form = await c.req.formData();
+
+    // Enforced here, not merely marked required in the markup. This
+    // acknowledgement is the actual control on publishing photos of students:
+    // nothing in code can verify a release exists.
+    if (!form.get('acknowledged')) {
+      return c.redirect(
+        `/admin/shows/${showId}?error=${encodeURIComponent('Confirm you have permission before adding photos.')}`,
+        302,
+      );
+    }
+
+    const store = c.get('images');
+    const imageIds: string[] = [];
+
+    for (const entry of form.getAll('photos')) {
+      const upload = await uploadImage(store, entry);
+      if (upload && 'error' in upload) {
+        // Whatever already uploaded stays uploaded but unreferenced; stopping
+        // here means the good photos in the batch are not silently published
+        // alongside a rejected one without the user knowing.
+        return c.redirect(
+          `/admin/shows/${showId}?error=${encodeURIComponent(upload.error)}`,
+          302,
+        );
+      }
+      if (upload) imageIds.push(upload.imageId);
+    }
+
+    await addGalleryImages(getDb(c.env.DB), c.get('actor'), showId, imageIds);
+    return c.redirect(`/admin/shows/${showId}`, 302);
+  },
+);
+
+adminRoutes.post(
+  '/admin/shows/:id/gallery/:photoId/delete',
+  requirePermission('show', 'update'),
+  async (c) => {
+    await removeGalleryImage(
+      getDb(c.env.DB),
+      c.get('actor'),
+      c.req.param('id'),
+      c.req.param('photoId'),
+    );
+    return c.redirect(`/admin/shows/${c.req.param('id')}`, 302);
   },
 );
 

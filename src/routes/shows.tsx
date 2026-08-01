@@ -13,6 +13,7 @@ import {
 } from '~/db/queries';
 import { SponsorGrid, type SponsorView } from '~/components/SponsorGrid';
 import { ShareButtons } from '~/components/ShareButtons';
+import { PhotoGallery } from '~/components/PhotoGallery';
 import { IMAGE_VARIANT, ogImageUrl } from '~/lib/images';
 import { formatShowDates, hasClosed } from '~/lib/dates';
 import type { ShowCastTier } from '~/db/schema/content';
@@ -245,19 +246,14 @@ showRoutes.get('/shows/:slug', async (c) => {
         <section class="py-16 bg-white">
           <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <h2 class="font-display text-2xl font-bold text-neutral-900 mb-8">Gallery</h2>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {gallery.map((image) => {
-                const url = images.deliveryUrl(image.imageId, IMAGE_VARIANT.Gallery);
-                return url ? (
-                  <img
-                    src={url}
-                    alt={image.caption ?? ''}
-                    loading="lazy"
-                    class="w-full aspect-square object-cover rounded-lg"
-                  />
-                ) : null;
+            <PhotoGallery
+              showTitle={show.title}
+              photos={gallery.flatMap((image) => {
+                const thumbUrl = images.deliveryUrl(image.imageId, IMAGE_VARIANT.Gallery);
+                const fullUrl = images.deliveryUrl(image.imageId, IMAGE_VARIANT.Hero);
+                return thumbUrl && fullUrl ? [{ thumbUrl, fullUrl }] : [];
               })}
-            </div>
+            />
           </div>
         </section>
       )}

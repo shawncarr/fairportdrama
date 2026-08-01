@@ -42,6 +42,7 @@ export const AUDIT_ACTION = {
   ShowCastAssigned: 'Show.CastAssigned',
   ShowCrewAssigned: 'Show.CrewAssigned',
   ShowPerformancesChanged: 'Show.PerformancesChanged',
+  ShowGalleryChanged: 'Show.GalleryChanged',
 
   // News
   NewsCreated: 'News.Created',
