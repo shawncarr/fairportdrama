@@ -31,10 +31,12 @@ import {
   submitSelfEdit,
 } from '~/services/member-profile';
 import { displayName } from '~/lib/member-display';
+import { IMAGE_VARIANT, MAX_IMAGE_BYTES, uploadImage, type ImageStore } from '~/lib/images';
 import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import { writeWithAudit } from '~/lib/audit/write';
 import { createInvite, inviteStatus, revokeInvite } from '~/services/invites';
 import { replaceCast, replaceCrew } from '~/services/casting';
+import { updateShowImages } from '~/services/show-images';
 import {
   NEWS_CATEGORY_LABELS,
   createNewsPost,
@@ -248,6 +250,16 @@ adminRoutes.get(
       );
 
     const saved = c.req.query('saved');
+    const error = c.req.query('error');
+    const images = c.get('images');
+    const currentPhoto = images.deliveryUrl(member.photoImageId, IMAGE_VARIANT.Thumb);
+
+    // Shown only while a photo change is queued, so the member can see what
+    // they submitted rather than the photo still live on the site.
+    const proposedPhotoId = queued
+      .map((q) => (q.proposed as Record<string, unknown>).photoImageId)
+      .find((id): id is string => typeof id === 'string');
+    const proposedPhoto = images.deliveryUrl(proposedPhotoId, IMAGE_VARIANT.Thumb);
 
     return c.render(
       <div class="max-w-2xl space-y-6">
@@ -261,7 +273,18 @@ adminRoutes.get(
           </p>
         )}
 
-        <form method="post" action="/admin/profile" class="space-y-6">
+        {error && (
+          <p class="rounded-lg bg-red-50 text-red-800 text-sm px-4 py-3 ring-1 ring-red-200">
+            {error}
+          </p>
+        )}
+
+        <form
+          method="post"
+          action="/admin/profile"
+          enctype="multipart/form-data"
+          class="space-y-6"
+        >
           <section class="bg-white rounded-xl ring-1 ring-neutral-200 p-6">
             <h2 class="font-display font-semibold text-neutral-900 mb-1">
               Who can see your details
@@ -328,6 +351,47 @@ adminRoutes.get(
               maxlength={64}
               class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none"
             />
+
+            <p class="block text-sm font-medium text-neutral-700 mb-1 mt-6">Photo</p>
+            <div class="flex items-start gap-4">
+              {(proposedPhoto ?? currentPhoto) ? (
+                <img
+                  src={proposedPhoto ?? currentPhoto ?? ''}
+                  alt=""
+                  class="w-24 h-24 rounded-lg object-cover ring-1 ring-neutral-200 shrink-0"
+                />
+              ) : (
+                <div class="w-24 h-24 rounded-lg bg-neutral-100 ring-1 ring-neutral-200 shrink-0 flex items-center justify-center text-neutral-400 text-xs">
+                  None
+                </div>
+              )}
+              <div class="flex-1">
+                {proposedPhoto && (
+                  <p class="text-xs text-amber-800 mb-2">
+                    This is the photo you submitted. It is not on the site until it is
+                    approved.
+                  </p>
+                )}
+                <input
+                  type="file"
+                  id="photo"
+                  name="photo"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  class="w-full text-sm text-neutral-600 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-neutral-100 file:text-neutral-800 file:font-medium hover:file:bg-neutral-200"
+                />
+                <p class="text-xs text-neutral-500 mt-2">
+                  JPEG, PNG, GIF, or WebP, up to {MAX_IMAGE_BYTES / 1024 / 1024} MB. A
+                  square headshot works best. Leave this empty to keep the photo you
+                  have.
+                </p>
+                {member.photoImageId && (
+                  <label class="flex items-center gap-2 text-sm text-neutral-700 mt-3">
+                    <input type="checkbox" name="removePhoto" value="1" />
+                    Remove my photo instead
+                  </label>
+                )}
+              </div>
+            </div>
           </section>
 
           {queued.length > 0 && (
@@ -367,6 +431,22 @@ adminRoutes.post(
     const bio = String(form.get('bio') ?? '').trim();
     const instagram = String(form.get('instagram') ?? '').trim();
 
+    // Removal wins over a simultaneous upload: if someone ticks "remove" and
+    // also picks a file, the safer reading of the intent is that the photo
+    // should come down.
+    const removePhoto = Boolean(form.get('removePhoto'));
+    let photoImageId: string | null | undefined;
+
+    if (removePhoto) {
+      photoImageId = null;
+    } else {
+      const upload = await uploadImage(c.get('images'), form.get('photo'));
+      if (upload && 'error' in upload) {
+        return c.redirect(`/admin/profile?error=${encodeURIComponent(upload.error)}`, 302);
+      }
+      photoImageId = upload?.imageId;
+    }
+
     const result = await submitSelfEdit(getDb(c.env.DB), c.get('actor'), memberId, {
       visibility:
         visibility === MEMBER_VISIBILITY.Full || visibility === MEMBER_VISIBILITY.Limited
@@ -374,6 +454,7 @@ adminRoutes.post(
           : undefined,
       bio: bio.length > 0 ? bio : null,
       instagram: instagram.length > 0 ? instagram : null,
+      photoImageId,
     });
 
     const flag = result.queuedForApproval.length > 0 ? 'queued' : result.noChange ? '' : '1';
@@ -382,6 +463,36 @@ adminRoutes.post(
 );
 
 // ---------------------------------------------------------------- approvals
+
+/**
+ * One side of an approval diff.
+ *
+ * A photo has to be shown as a photo. Rendering the image id as text would ask
+ * an officer to accept responsibility for publishing something they never saw,
+ * which would make the acknowledgement checkbox a formality.
+ */
+function ProposedValue({
+  field,
+  value,
+  images,
+}: {
+  field: string;
+  value: unknown;
+  images: ImageStore;
+}) {
+  if (field === 'photoImageId') {
+    const url = typeof value === 'string' ? images.deliveryUrl(value, IMAGE_VARIANT.Thumb) : null;
+    return url ? (
+      <img src={url} alt="" class="w-28 h-28 rounded-lg object-cover ring-1 ring-neutral-200" />
+    ) : (
+      <p class="text-neutral-500">(no photo)</p>
+    );
+  }
+
+  return (
+    <p class="text-neutral-800 whitespace-pre-wrap">{String(value ?? '(empty)')}</p>
+  );
+}
 
 adminRoutes.get(
   '/admin/approvals',
@@ -400,6 +511,7 @@ adminRoutes.get(
         memberVisibility: members.visibility,
         memberBio: members.bio,
         memberInstagram: members.instagram,
+        memberPhotoImageId: members.photoImageId,
       })
       .from(pendingEdits)
       .leftJoin(members, eq(members.id, pendingEdits.targetId))
@@ -426,6 +538,7 @@ adminRoutes.get(
             const currentValues: Record<string, unknown> = {
               bio: item.memberBio,
               instagram: item.memberInstagram,
+              photoImageId: item.memberPhotoImageId,
             };
 
             return (
@@ -446,15 +559,15 @@ adminRoutes.get(
                       <dd class="grid sm:grid-cols-2 gap-3 text-sm">
                         <div class="rounded-lg bg-red-50 ring-1 ring-red-100 p-3">
                           <p class="text-xs text-red-700 mb-1">Current</p>
-                          <p class="text-neutral-800 whitespace-pre-wrap">
-                            {String(currentValues[field] ?? '(empty)')}
-                          </p>
+                          <ProposedValue
+                            field={field}
+                            value={currentValues[field]}
+                            images={c.get('images')}
+                          />
                         </div>
                         <div class="rounded-lg bg-green-50 ring-1 ring-green-100 p-3">
                           <p class="text-xs text-green-700 mb-1">Proposed</p>
-                          <p class="text-neutral-800 whitespace-pre-wrap">
-                            {String(value ?? '(empty)')}
-                          </p>
+                          <ProposedValue field={field} value={value} images={c.get('images')} />
                         </div>
                       </dd>
                     </div>
@@ -1356,6 +1469,34 @@ adminRoutes.post(
 
 // ---------------------------------------------------------------- shows
 
+/**
+ * The three artwork slots, each with the variant used for its own preview so
+ * the admin shows roughly what the public page will.
+ */
+const SHOW_IMAGE_FIELDS = [
+  {
+    column: 'posterImageId',
+    label: 'Poster',
+    variant: IMAGE_VARIANT.Poster,
+    preview: 'aspect-[2/3]',
+    hint: 'Portrait, 2:3.',
+  },
+  {
+    column: 'heroImageId',
+    label: 'Hero banner',
+    variant: IMAGE_VARIANT.Hero,
+    preview: 'aspect-video',
+    hint: 'Wide, 16:9.',
+  },
+  {
+    column: 'ogImageId',
+    label: 'Social preview',
+    variant: IMAGE_VARIANT.Og,
+    preview: 'aspect-[1200/630]',
+    hint: 'Optional. Falls back to the hero.',
+  },
+] as const;
+
 adminRoutes.get('/admin/shows', requirePermission('cast', 'assign'), async (c) => {
   const db = getDb(c.env.DB);
   const all = await db.select().from(shows).orderBy(desc(shows.year));
@@ -1399,6 +1540,7 @@ adminRoutes.get('/admin/shows', requirePermission('cast', 'assign'), async (c) =
 
 adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (c) => {
   const db = getDb(c.env.DB);
+  const images = c.get('images');
   const showId = c.req.param('id');
 
   const [show] = await db.select().from(shows).where(eq(shows.id, showId)).limit(1);
@@ -1448,6 +1590,69 @@ adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (
         <h1 class="font-display text-2xl font-bold text-neutral-900 mt-2">{show.title}</h1>
         <p class="text-neutral-500 text-sm">{show.season}</p>
       </div>
+
+      {c.req.query('error') && (
+        <p class="rounded-lg bg-red-50 text-red-800 text-sm px-4 py-3 ring-1 ring-red-200">
+          {c.req.query('error')}
+        </p>
+      )}
+
+      {/* Artwork writes need show.update, which officers do not hold, but the
+          page itself is reachable with cast.assign. Rendering the form to
+          someone whose submit would 403 is worse than not showing it. */}
+      {can(c.get('role')!, 'show', 'update') && (
+      <form
+        method="post"
+        action={`/admin/shows/${show.id}/images`}
+        enctype="multipart/form-data"
+        class="space-y-3"
+      >
+        <h2 class="font-display font-semibold text-neutral-900">Artwork</h2>
+        <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 grid gap-6 sm:grid-cols-3">
+          {SHOW_IMAGE_FIELDS.map((f) => {
+            const url = images.deliveryUrl(
+              show[f.column] as string | null,
+              f.variant,
+            );
+            return (
+              <div>
+                <p class="text-sm font-medium text-neutral-700 mb-2">{f.label}</p>
+                {url ? (
+                  <img
+                    src={url}
+                    alt=""
+                    class={`${f.preview} w-full object-cover rounded-lg ring-1 ring-neutral-200 mb-2`}
+                  />
+                ) : (
+                  <div
+                    class={`${f.preview} w-full rounded-lg bg-neutral-100 ring-1 ring-neutral-200 mb-2 flex items-center justify-center text-xs text-neutral-400`}
+                  >
+                    None
+                  </div>
+                )}
+                <input
+                  type="file"
+                  name={f.column}
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  class="w-full text-xs text-neutral-600 file:mr-2 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-neutral-100 file:text-neutral-800 hover:file:bg-neutral-200"
+                />
+                <p class="text-xs text-neutral-500 mt-1">{f.hint}</p>
+              </div>
+            );
+          })}
+        </div>
+        <button
+          type="submit"
+          class="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
+        >
+          Save artwork
+        </button>
+        <p class="text-xs text-neutral-500">
+          Leave a slot empty to keep the image it has. Social previews fall back to the
+          hero, then the poster, so the third slot is only needed to override that.
+        </p>
+      </form>
+      )}
 
       <p class="rounded-lg bg-neutral-50 ring-1 ring-neutral-200 px-4 py-3 text-sm text-neutral-700">
         Leave a role set to <strong>TBA</strong> if it is not cast yet - the part still
@@ -1539,6 +1744,31 @@ adminRoutes.post(
 
     await replaceCast(getDb(c.env.DB), c.get('actor'), c.req.param('id'), rows);
     return c.redirect(`/admin/shows/${c.req.param('id')}`, 302);
+  },
+);
+
+adminRoutes.post(
+  '/admin/shows/:id/images',
+  requirePermission('show', 'update'),
+  async (c) => {
+    const showId = c.req.param('id');
+    const form = await c.req.formData();
+    const store = c.get('images');
+
+    const patch: Record<string, string> = {};
+    for (const field of SHOW_IMAGE_FIELDS) {
+      const upload = await uploadImage(store, form.get(field.column));
+      if (upload && 'error' in upload) {
+        return c.redirect(
+          `/admin/shows/${showId}?error=${encodeURIComponent(`${field.label}: ${upload.error}`)}`,
+          302,
+        );
+      }
+      if (upload) patch[field.column] = upload.imageId;
+    }
+
+    await updateShowImages(getDb(c.env.DB), c.get('actor'), showId, patch);
+    return c.redirect(`/admin/shows/${showId}`, 302);
   },
 );
 

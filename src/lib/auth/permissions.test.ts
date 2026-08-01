@@ -116,13 +116,23 @@ describe('privilege boundaries that matter', () => {
 describe('member self-edit field rules', () => {
   it('visibility applies immediately without approval', () => {
     expect(isSelfEditable('visibility')).toBe(true);
-    expect(selfEditNeedsApproval('visibility')).toBe(false);
+    expect(selfEditNeedsApproval('visibility', 'full')).toBe(false);
+    expect(selfEditNeedsApproval('visibility', 'limited')).toBe(false);
   });
 
   it('published content queues for approval', () => {
     for (const field of ['bio', 'photoImageId', 'instagram']) {
       expect(isSelfEditable(field)).toBe(true);
-      expect(selfEditNeedsApproval(field)).toBe(true);
+      expect(selfEditNeedsApproval(field, 'some new value')).toBe(true);
+    }
+  });
+
+  it('clearing published content does not queue', () => {
+    // Approval reviews what a student publishes, not what they take back. A
+    // student who wants their photo down must not wait on an officer.
+    for (const field of ['bio', 'photoImageId', 'instagram']) {
+      expect(selfEditNeedsApproval(field, null)).toBe(false);
+      expect(selfEditNeedsApproval(field, '')).toBe(false);
     }
   });
 

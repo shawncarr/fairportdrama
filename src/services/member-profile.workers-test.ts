@@ -122,6 +122,57 @@ describe('content changes are queued, never applied directly', () => {
   });
 });
 
+describe('withdrawing content never waits for approval', () => {
+  // The mirror of the visibility rule. Approval reviews what a student
+  // publishes, not what they take back: a student uncomfortable with their own
+  // photo must not need an officer to take it down.
+  it('removing a photo applies at once', async () => {
+    await seedMember({ photoImageId: 'img-live' });
+
+    const result = await submitSelfEdit(db(), student, 'daniel-doser', {
+      photoImageId: null,
+    });
+
+    expect(result.appliedImmediately).toEqual(['photoImageId']);
+    expect(result.queuedForApproval).toEqual([]);
+    expect((await member()).photoImageId).toBeNull();
+    expect(await db().select().from(pendingEdits)).toHaveLength(0);
+  });
+
+  it('clearing a bio applies at once', async () => {
+    await seedMember({ bio: 'Original bio.' });
+
+    const result = await submitSelfEdit(db(), student, 'daniel-doser', { bio: null });
+
+    expect(result.appliedImmediately).toEqual(['bio']);
+    expect((await member()).bio).toBeNull();
+  });
+
+  it('but setting a new photo still queues', async () => {
+    await seedMember({ photoImageId: 'img-live' });
+
+    const result = await submitSelfEdit(db(), student, 'daniel-doser', {
+      photoImageId: 'img-new',
+    });
+
+    expect(result.queuedForApproval).toEqual(['photoImageId']);
+    // The live photo is untouched until someone approves the replacement.
+    expect((await member()).photoImageId).toBe('img-live');
+  });
+
+  it('removal is audited like any other change', async () => {
+    await seedMember({ photoImageId: 'img-live' });
+    await submitSelfEdit(db(), student, 'daniel-doser', { photoImageId: null });
+
+    const rows = await audits();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.action).toBe(AUDIT_ACTION.MemberUpdated);
+    expect(rows[0]!.diff).toEqual({
+      photoImageId: { before: 'img-live', after: null },
+    });
+  });
+});
+
 describe('a single submission can do both', () => {
   it('applies visibility now and queues the bio', async () => {
     await seedMember({ visibility: MEMBER_VISIBILITY.Limited });

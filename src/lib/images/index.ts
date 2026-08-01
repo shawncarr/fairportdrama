@@ -6,6 +6,7 @@ import type { ImageStore } from './types';
 export * from './types';
 export { CloudflareImageStore } from './cloudflare';
 export { LocalImageStore, LOCAL_IMAGE_PREFIX } from './local';
+export { MAX_IMAGE_BYTES, readImageUpload, sniffImageType, uploadImage } from './upload';
 
 /**
  * Chooses an image store from configuration rather than from an explicit

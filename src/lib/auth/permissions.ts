@@ -130,6 +130,16 @@ export function isSelfEditable(field: string): field is SelfEditableField {
   );
 }
 
-export function selfEditNeedsApproval(field: string): boolean {
-  return (SELF_EDIT_FIELDS.requiresApproval as readonly string[]).includes(field);
+/**
+ * Whether a proposed self-edit has to be reviewed before it takes effect.
+ *
+ * Clearing an approval-gated field is immediate. Approval exists to review what
+ * a student publishes, not to slow down taking it back: requiring an officer to
+ * sign off on removing a photo would leave a student who is uncomfortable with
+ * their own photo waiting on someone else to take it down. That is the same
+ * reasoning that makes the visibility toggle free in both directions.
+ */
+export function selfEditNeedsApproval(field: string, value: unknown): boolean {
+  if (!(SELF_EDIT_FIELDS.requiresApproval as readonly string[]).includes(field)) return false;
+  return value !== null && value !== '';
 }

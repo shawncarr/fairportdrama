@@ -1,0 +1,241 @@
+import { env } from 'cloudflare:test';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
+import app from '~/index';
+import { getDb } from '~/db/queries';
+import { members, shows, MEMBER_VISIBILITY } from '~/db/schema/content';
+import { invites, pendingEdits, APP_ROLE, type AppRole } from '~/db/schema/governance';
+import { generateId } from '~/lib/id';
+import { createAuth } from '~/lib/auth';
+
+/**
+ * The upload path, end to end through a real session.
+ *
+ * The unit tests cover validation in isolation; this covers the parts only a
+ * real request exercises - multipart parsing, the store write, and whether the
+ * stored bytes actually come back out of the delivery URL.
+ */
+
+const db = () => getDb(env.DB);
+
+/** A minimal but genuine 1x1 GIF, so the byte sniffer sees a real image. */
+const GIF_BYTES = new Uint8Array([
+  0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00,
+  0x00, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x21, 0xf9, 0x04, 0x01, 0x00,
+  0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+  0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b,
+]);
+
+async function signIn(email: string, role: AppRole, memberId: string | null) {
+  await db()
+    .insert(invites)
+    .values({
+      id: generateId(),
+      email,
+      role,
+      memberId,
+      token: generateId(),
+      expiresAt: new Date(Date.now() + 7 * 864e5).toISOString(),
+      createdByUserId: 'seed',
+      createdAt: new Date().toISOString(),
+    });
+
+  const auth = createAuth(env as never);
+  await auth.api
+    .signInMagicLink({ body: { email, callbackURL: '/admin' }, headers: new Headers() })
+    .catch(() => undefined);
+
+  const pending = await db().select().from((await import('~/db/schema/auth')).verification);
+  const match = pending.find((v) => String(v.value).includes(email.toLowerCase()));
+  if (!match) throw new Error('no magic link issued');
+
+  const response = await auth.handler(
+    new Request(
+      `https://fairportdrama.com/api/auth/magic-link/verify?token=${match.identifier}&callbackURL=/admin`,
+      { redirect: 'manual' },
+    ),
+  );
+  const cookie = response.headers.get('set-cookie');
+  if (!cookie) throw new Error('no session cookie issued');
+  return cookie.split(';')[0]!;
+}
+
+const post = (path: string, cookie: string, form: FormData) =>
+  app.fetch(
+    new Request(`https://fairportdrama.com${path}`, {
+      method: 'POST',
+      headers: { cookie },
+      body: form,
+      redirect: 'manual',
+    }),
+    env,
+  );
+
+const get = (path: string, cookie?: string) =>
+  app.fetch(
+    new Request(`https://fairportdrama.com${path}`, {
+      headers: cookie ? { cookie } : {},
+      redirect: 'manual',
+    }),
+    env,
+  );
+
+const imageFile = (data: Uint8Array, name = 'photo.gif', type = 'image/gif') =>
+  new File([data as BufferSource], name, { type });
+
+/** The profile form as a browser submits it: every field present. */
+const profileForm = (over: Record<string, string | File> = {}) => {
+  const form = new FormData();
+  form.set('visibility', MEMBER_VISIBILITY.Limited);
+  form.set('bio', 'Original bio.');
+  form.set('instagram', '');
+  for (const [k, v] of Object.entries(over)) form.set(k, v);
+  return form;
+};
+
+beforeEach(async () => {
+  for (const table of [
+    'audit_events',
+    'pending_edits',
+    'invites',
+    'session',
+    'account',
+    'user',
+    'verification',
+    'show_cast',
+    'show_crew',
+    'shows',
+    'members',
+  ]) {
+    await env.DB.exec(`DELETE FROM ${table}`);
+  }
+
+  await db().insert(members).values({
+    id: 'daniel-doser',
+    name: 'Daniel Doser',
+    grade: 'Senior',
+    visibility: MEMBER_VISIBILITY.Limited,
+    bio: 'Original bio.',
+  });
+
+  await db().insert(shows).values({
+    id: 'charlottes-web',
+    title: "Charlotte's Web",
+    season: 'Fall 2025',
+    year: 2025,
+    synopsis: 'A pig and a spider.',
+  });
+});
+
+const member = async () =>
+  (await db().select().from(members).where(eq(members.id, 'daniel-doser')))[0]!;
+
+describe('a member uploading their own photo', () => {
+  it('queues the photo for approval instead of publishing it', async () => {
+    const cookie = await signIn('student@example.com', APP_ROLE.Member, 'daniel-doser');
+
+    const response = await post(
+      '/admin/profile',
+      cookie,
+      profileForm({ photo: imageFile(GIF_BYTES) }),
+    );
+    expect(response.status).toBe(302);
+
+    // The live record is untouched...
+    expect((await member()).photoImageId).toBeNull();
+
+    // ...but the image itself was stored and is named on the pending edit.
+    const [queued] = await db().select().from(pendingEdits);
+    const proposed = queued!.proposed as Record<string, unknown>;
+    expect(typeof proposed.photoImageId).toBe('string');
+  });
+
+  it('serves the stored bytes back from the delivery URL', async () => {
+    const cookie = await signIn('student@example.com', APP_ROLE.Member, 'daniel-doser');
+    await post('/admin/profile', cookie, profileForm({ photo: imageFile(GIF_BYTES) }));
+
+    const [queued] = await db().select().from(pendingEdits);
+    const imageId = (queued!.proposed as Record<string, string>).photoImageId!;
+
+    // Proves the round trip: what the form uploaded is what the store returns,
+    // byte for byte, under the content type the sniffer decided on.
+    const response = await get(`/dev/images/${imageId}/thumb`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('image/gif');
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(GIF_BYTES);
+  });
+
+  it('rejects a non-image without storing anything', async () => {
+    const cookie = await signIn('student@example.com', APP_ROLE.Member, 'daniel-doser');
+    const evil = new TextEncoder().encode('<svg onload="alert(1)"><script/></svg>');
+
+    const response = await post(
+      '/admin/profile',
+      cookie,
+      profileForm({ photo: imageFile(evil, 'photo.gif', 'image/gif') }),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toContain('error=');
+    expect(await db().select().from(pendingEdits)).toHaveLength(0);
+  });
+
+  it('leaves the existing photo alone when no file is chosen', async () => {
+    await db()
+      .update(members)
+      .set({ photoImageId: 'existing-image' })
+      .where(eq(members.id, 'daniel-doser'));
+
+    const cookie = await signIn('student@example.com', APP_ROLE.Member, 'daniel-doser');
+    // An untouched file input submits a zero-byte entry, exactly as here.
+    await post('/admin/profile', cookie, profileForm({ photo: imageFile(new Uint8Array(0)) }));
+
+    expect((await member()).photoImageId).toBe('existing-image');
+    expect(await db().select().from(pendingEdits)).toHaveLength(0);
+  });
+
+  it('takes the photo down immediately when asked to remove it', async () => {
+    await db()
+      .update(members)
+      .set({ photoImageId: 'existing-image' })
+      .where(eq(members.id, 'daniel-doser'));
+
+    const cookie = await signIn('student@example.com', APP_ROLE.Member, 'daniel-doser');
+    await post('/admin/profile', cookie, profileForm({ removePhoto: '1' }));
+
+    expect((await member()).photoImageId).toBeNull();
+    expect(await db().select().from(pendingEdits)).toHaveLength(0);
+  });
+});
+
+describe('show artwork', () => {
+  it('is applied at once by staff', async () => {
+    const cookie = await signIn('director@example.com', APP_ROLE.Staff, null);
+
+    const form = new FormData();
+    form.set('posterImageId', imageFile(GIF_BYTES, 'poster.gif'));
+    const response = await post('/admin/shows/charlottes-web/images', cookie, form);
+    expect(response.status).toBe(302);
+
+    const [row] = await db().select().from(shows).where(eq(shows.id, 'charlottes-web'));
+    expect(row!.posterImageId).toBeTruthy();
+  });
+
+  it('is refused to an officer, who cannot edit shows', async () => {
+    const cookie = await signIn('officer@example.com', APP_ROLE.Officer, 'daniel-doser');
+
+    const form = new FormData();
+    form.set('posterImageId', imageFile(GIF_BYTES, 'poster.gif'));
+    expect((await post('/admin/shows/charlottes-web/images', cookie, form)).status).toBe(403);
+  });
+
+  it('is not offered to an officer in the first place', async () => {
+    const cookie = await signIn('officer@example.com', APP_ROLE.Officer, 'daniel-doser');
+    const body = await (await get('/admin/shows/charlottes-web', cookie)).text();
+
+    // The page is reachable with cast.assign, so the form must be withheld
+    // rather than shown and then 403ing on submit.
+    expect(body).toContain('Cast');
+    expect(body).not.toContain('/images');
+  });
+});

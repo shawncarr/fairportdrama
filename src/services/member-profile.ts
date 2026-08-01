@@ -51,8 +51,12 @@ export async function submitSelfEdit(
     // Unchanged fields are dropped before anything is written, so a form
     // resubmit does not create an empty approval or a no-op audit row.
     if ((current as Record<string, unknown>)[key] === value) continue;
-    if (selfEditNeedsApproval(key)) queued[key] = value;
-    else if ((SELF_EDIT_FIELDS.immediate as readonly string[]).includes(key)) {
+    if (selfEditNeedsApproval(key, value)) queued[key] = value;
+    else if (
+      (SELF_EDIT_FIELDS.immediate as readonly string[]).includes(key) ||
+      // Clearing a reviewed field. Withdrawing content never waits on approval.
+      (SELF_EDIT_FIELDS.requiresApproval as readonly string[]).includes(key)
+    ) {
       immediate[key] = value;
     }
   }
