@@ -15,6 +15,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
 
 const SOURCE = '../fairportdrama/src/content';
 const PUBLIC_SOURCE = '../fairportdrama/public';
@@ -61,38 +62,44 @@ if (fs.existsSync(ogDir)) {
 }
 
 const manifest = {};
-let n = 0;
+const entries = [];
 
 for (const { key, abs } of found) {
   // Stable id derived from the source path, so re-running does not duplicate.
   const id = 'local-' + crypto.createHash('sha256').update(key).digest('hex').slice(0, 24);
   const ext = path.extname(abs).toLowerCase();
 
-  execFileSync(
-    'npx',
-    [
-      'wrangler', 'kv', 'key', 'put',
-      `local-image:${id}`,
-      '--binding', 'KV', '--local',
-      '--path', abs,
-    ],
-    { stdio: ['ignore', 'ignore', 'ignore'] },
-  );
-  execFileSync(
-    'npx',
-    [
-      'wrangler', 'kv', 'key', 'put',
-      `local-image:${id}:meta`,
-      JSON.stringify({ contentType: CONTENT_TYPES[ext] ?? 'application/octet-stream' }),
-      '--binding', 'KV', '--local',
-    ],
-    { stdio: ['ignore', 'ignore', 'ignore'] },
-  );
+  entries.push({
+    key: `local-image:${id}`,
+    value: fs.readFileSync(abs).toString('base64'),
+    base64: true,
+  });
+  entries.push({
+    key: `local-image:${id}:meta`,
+    value: JSON.stringify({ contentType: CONTENT_TYPES[ext] ?? 'application/octet-stream' }),
+  });
 
   manifest[key] = id;
-  n++;
-  if (n % 20 === 0) console.log(`  ${n}/${found.length}`);
 }
+
+// One bulk write rather than a wrangler invocation per key. Writing these
+// individually meant 2 npx spawns per image - around fifteen minutes for the
+// archive, which matters because changing the KV namespace id repoints
+// miniflare's local storage and everything has to be loaded again.
+const bulkFile = path.join(os.tmpdir(), `fairport-local-images-${process.pid}.json`);
+fs.writeFileSync(bulkFile, JSON.stringify(entries));
+
+try {
+  execFileSync(
+    'npx',
+    ['wrangler', 'kv', 'bulk', 'put', bulkFile, '--binding', 'KV', '--local'],
+    { stdio: ['ignore', 'ignore', 'inherit'] },
+  );
+} finally {
+  fs.rmSync(bulkFile, { force: true });
+}
+
+const n = found.length;
 
 fs.mkdirSync(path.dirname(MANIFEST), { recursive: true });
 fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
