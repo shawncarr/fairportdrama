@@ -1,7 +1,7 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { AppEnv } from '~/env';
-import { getDb, getGallery } from '~/db/queries';
+import { getDb, getGallery, getPerformances } from '~/db/queries';
 import {
   members,
   news,
@@ -37,6 +37,15 @@ import { writeWithAudit } from '~/lib/audit/write';
 import { createInvite, inviteStatus, revokeInvite } from '~/services/invites';
 import { replaceCast, replaceCrew } from '~/services/casting';
 import { updateShowImages } from '~/services/show-images';
+import {
+  DEFAULT_VENUE,
+  createShow,
+  deleteShow,
+  replacePerformances,
+  setFeaturedShow,
+  showIsDeletable,
+  updateShow,
+} from '~/services/shows';
 import { addGalleryImages, removeGalleryImage } from '~/services/gallery';
 import {
   GRADES,
@@ -2268,18 +2277,47 @@ const SHOW_IMAGE_FIELDS = [
 
 adminRoutes.get('/admin/shows', requirePermission('cast', 'assign'), async (c) => {
   const db = getDb(c.env.DB);
-  const all = await db.select().from(shows).orderBy(desc(shows.year));
+  const all = await db
+    .select({
+      id: shows.id,
+      title: shows.title,
+      season: shows.season,
+      year: shows.year,
+      isCurrent: shows.isCurrent,
+      lastPerformance: sql<string | null>`(
+        SELECT MAX(p.date) FROM show_performances p WHERE p.show_id = shows.id
+      )`,
+    })
+    .from(shows)
+    .orderBy(desc(shows.year));
+
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
 
   return c.render(
     <div class="space-y-6">
-      <h1 class="font-display text-2xl font-bold text-neutral-900">Shows</h1>
+      <div class="flex items-center justify-between gap-4">
+        <h1 class="font-display text-2xl font-bold text-neutral-900">Shows</h1>
+        {can(c.get('role')!, 'show', 'create') && (
+          <a
+            href="/admin/shows/new"
+            class="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            Add show
+          </a>
+        )}
+      </div>
       <div class="bg-white rounded-xl ring-1 ring-neutral-200 overflow-x-auto">
         <table class="w-full text-sm">
           <thead class="bg-neutral-50 text-left">
             <tr>
               <th class="px-4 py-3 font-medium text-neutral-600">Show</th>
               <th class="px-4 py-3 font-medium text-neutral-600">Season</th>
-              <th class="px-4 py-3 font-medium text-neutral-600">Featured</th>
+              <th class="px-4 py-3 font-medium text-neutral-600">Home page</th>
               <th class="px-4 py-3" />
             </tr>
           </thead>
@@ -2288,7 +2326,21 @@ adminRoutes.get('/admin/shows', requirePermission('cast', 'assign'), async (c) =
               <tr>
                 <td class="px-4 py-2 text-neutral-900">{show.title}</td>
                 <td class="px-4 py-2 text-neutral-500">{show.season}</td>
-                <td class="px-4 py-2 text-neutral-500">{show.isCurrent ? 'yes' : '—'}</td>
+                <td class="px-4 py-2 text-neutral-500">
+                  {show.isCurrent ? (
+                    show.lastPerformance && show.lastPerformance < today ? (
+                      <span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs">
+                        featured, run over
+                      </span>
+                    ) : (
+                      <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs">
+                        featured
+                      </span>
+                    )
+                  ) : (
+                    '\u2014'
+                  )}
+                </td>
                 <td class="px-4 py-2 text-right">
                   <a
                     href={`/admin/shows/${show.id}`}
@@ -2307,6 +2359,212 @@ adminRoutes.get('/admin/shows', requirePermission('cast', 'assign'), async (c) =
   );
 });
 
+// --------------------------------------------------------- create a show
+// Registered before /admin/shows/:id so `new` is not read as an id.
+
+interface ShowFormValues {
+  title: string;
+  season: string;
+  year: string;
+  venue: string;
+  synopsis: string;
+  ticketUrl: string;
+  isHighlighted: boolean;
+}
+
+function ShowFields({ values }: { values: ShowFormValues }) {
+  const field =
+    'w-full px-4 py-2.5 rounded-lg border border-neutral-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none';
+
+  return (
+    <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 space-y-4">
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div class="sm:col-span-2">
+          <label for="s-title" class="block text-sm font-medium text-neutral-700 mb-1">
+            Title
+          </label>
+          <input
+            type="text"
+            id="s-title"
+            name="title"
+            required
+            maxlength={200}
+            value={values.title}
+            class={field}
+          />
+        </div>
+
+        <div>
+          <label for="s-season" class="block text-sm font-medium text-neutral-700 mb-1">
+            Season
+          </label>
+          <input
+            type="text"
+            id="s-season"
+            name="season"
+            required
+            placeholder="Fall 2026"
+            maxlength={40}
+            value={values.season}
+            class={field}
+          />
+        </div>
+
+        <div>
+          <label for="s-year" class="block text-sm font-medium text-neutral-700 mb-1">
+            Year
+          </label>
+          <input
+            type="text"
+            id="s-year"
+            name="year"
+            required
+            inputmode="numeric"
+            value={values.year}
+            class={field}
+          />
+        </div>
+
+        <div class="sm:col-span-2">
+          <label for="s-venue" class="block text-sm font-medium text-neutral-700 mb-1">
+            Venue
+          </label>
+          <input
+            type="text"
+            id="s-venue"
+            name="venue"
+            maxlength={120}
+            placeholder={DEFAULT_VENUE}
+            value={values.venue}
+            class={field}
+          />
+        </div>
+
+        <div class="sm:col-span-2">
+          <label for="s-synopsis" class="block text-sm font-medium text-neutral-700 mb-1">
+            Synopsis
+          </label>
+          <textarea
+            id="s-synopsis"
+            name="synopsis"
+            required
+            rows={5}
+            maxlength={2000}
+            class={field}
+          >
+            {values.synopsis}
+          </textarea>
+        </div>
+
+        <div class="sm:col-span-2">
+          <label for="s-tickets" class="block text-sm font-medium text-neutral-700 mb-1">
+            Ticket link
+          </label>
+          <input
+            type="url"
+            id="s-tickets"
+            name="ticketUrl"
+            placeholder="https://fairporthighschool.ludus.com/"
+            value={values.ticketUrl}
+            class={field}
+          />
+        </div>
+      </div>
+
+      <label class="flex items-center gap-2 text-sm text-neutral-700">
+        <input type="checkbox" name="isHighlighted" value="1" checked={values.isHighlighted} />
+        Highlight in "Past Productions" on the home page once it has closed
+      </label>
+    </div>
+  );
+}
+
+const readShowForm = async (c: Context<AppEnv>) => {
+  const form = await c.req.formData();
+  const ticketUrl = String(form.get('ticketUrl') ?? '').trim();
+  const values: ShowFormValues = {
+    title: String(form.get('title') ?? '').trim(),
+    season: String(form.get('season') ?? '').trim(),
+    year: String(form.get('year') ?? '').trim(),
+    venue: String(form.get('venue') ?? '').trim(),
+    synopsis: String(form.get('synopsis') ?? '').trim(),
+    ticketUrl,
+    isHighlighted: Boolean(form.get('isHighlighted')),
+  };
+  return { form, values };
+};
+
+adminRoutes.get('/admin/shows/new', requirePermission('show', 'create'), (c) =>
+  c.render(
+    <div class="max-w-2xl space-y-6">
+      <div>
+        <a href="/admin/shows" class="text-sm text-primary-600 hover:text-primary-700">
+          &larr; All shows
+        </a>
+        <h1 class="font-display text-2xl font-bold text-neutral-900 mt-2">Add a show</h1>
+      </div>
+
+      {c.req.query('error') && (
+        <p class="rounded-lg bg-red-50 text-red-800 text-sm px-4 py-3 ring-1 ring-red-200">
+          {c.req.query('error')}
+        </p>
+      )}
+
+      <form method="post" action="/admin/shows/new" class="space-y-5">
+        <ShowFields
+          values={{
+            title: '',
+            season: '',
+            year: String(new Date().getFullYear()),
+            venue: '',
+            synopsis: '',
+            ticketUrl: '',
+            isHighlighted: false,
+          }}
+        />
+        <p class="rounded-lg bg-neutral-50 ring-1 ring-neutral-200 px-4 py-3 text-sm text-neutral-700">
+          The show is not featured on the home page until you say so, and you can add
+          cast, dates, and artwork after creating it.
+        </p>
+        <button
+          type="submit"
+          class="px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
+        >
+          Create show
+        </button>
+      </form>
+    </div>,
+    { title: 'Add a show' },
+  ),
+);
+
+adminRoutes.post('/admin/shows/new', requirePermission('show', 'create'), async (c) => {
+  const { values } = await readShowForm(c);
+  const year = Number.parseInt(values.year, 10);
+
+  if (!Number.isFinite(year) || year < 1900 || year > 2200) {
+    return c.redirect(
+      `/admin/shows/new?error=${encodeURIComponent('Enter a four-digit year.')}`,
+      302,
+    );
+  }
+
+  const result = await createShow(getDb(c.env.DB), c.get('actor'), {
+    title: values.title,
+    season: values.season,
+    year,
+    venue: values.venue,
+    synopsis: values.synopsis,
+    ticketUrl: values.ticketUrl.length > 0 ? values.ticketUrl : null,
+    isHighlighted: values.isHighlighted,
+  });
+
+  if (!result.ok) {
+    return c.redirect(`/admin/shows/new?error=${encodeURIComponent(result.error)}`, 302);
+  }
+  return c.redirect(`/admin/shows/${result.id}?created=1`, 302);
+});
+
 adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (c) => {
   const db = getDb(c.env.DB);
   const images = c.get('images');
@@ -2315,7 +2573,7 @@ adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (
   const [show] = await db.select().from(shows).where(eq(shows.id, showId)).limit(1);
   if (!show) return c.notFound();
 
-  const [cast, crew, roster, gallery] = await Promise.all([
+  const [cast, crew, roster, gallery, performances, deletable] = await Promise.all([
     db.select().from(showCast).where(eq(showCast.showId, showId)).orderBy(showCast.sortOrder),
     db.select().from(showCrew).where(eq(showCrew.showId, showId)).orderBy(showCrew.sortOrder),
     db
@@ -2324,7 +2582,17 @@ adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (
       .where(eq(members.isActive, true))
       .orderBy(members.name),
     getGallery(db, showId),
+    getPerformances(db, showId),
+    showIsDeletable(db, showId),
   ]);
+
+  const canEditShow = can(c.get('role')!, 'show', 'update');
+
+  // Blank rows so dates can be added without any client-side scripting.
+  const dateRows = [
+    ...performances.map((p) => ({ date: p.date, time: p.time })),
+    ...Array.from({ length: 4 }, () => ({ date: '', time: '' })),
+  ];
 
   // Blank rows so roles can be added without any client-side scripting. The
   // form is plain HTML, which keeps it usable on a school Chromebook with
@@ -2365,6 +2633,114 @@ adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (
         <p class="rounded-lg bg-red-50 text-red-800 text-sm px-4 py-3 ring-1 ring-red-200">
           {c.req.query('error')}
         </p>
+      )}
+
+      {c.req.query('created') && (
+        <p class="rounded-lg bg-green-50 text-green-800 text-sm px-4 py-3 ring-1 ring-green-200">
+          Show created. Add the dates, cast, and artwork below, then feature it when you
+          are ready to announce it.
+        </p>
+      )}
+
+      {canEditShow && (
+        <>
+          <form method="post" action={`/admin/shows/${show.id}/details`} class="space-y-3">
+            <h2 class="font-display font-semibold text-neutral-900">Details</h2>
+            <ShowFields
+              values={{
+                title: show.title,
+                season: show.season,
+                year: String(show.year),
+                venue: show.venue,
+                synopsis: show.synopsis,
+                ticketUrl: show.ticketUrl ?? '',
+                isHighlighted: show.isHighlighted,
+              }}
+            />
+            <p class="text-xs text-neutral-500">
+              The web address stays <code>/shows/{show.id}</code> whatever the title
+              becomes, so links already shared keep working.
+            </p>
+            <button
+              type="submit"
+              class="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
+            >
+              Save details
+            </button>
+          </form>
+
+          <form method="post" action={`/admin/shows/${show.id}/performances`} class="space-y-3">
+            <h2 class="font-display font-semibold text-neutral-900">Performance dates</h2>
+            <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-4 space-y-2">
+              {dateRows.map((row) => (
+                <div class="grid grid-cols-12 gap-2 items-center">
+                  <input
+                    type="date"
+                    name="date"
+                    value={row.date}
+                    class="col-span-6 px-2 py-1.5 rounded border border-neutral-300 text-sm"
+                  />
+                  <input
+                    type="text"
+                    name="time"
+                    value={row.time}
+                    placeholder="7:30 PM"
+                    class="col-span-6 px-2 py-1.5 rounded border border-neutral-300 text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+            <p class="text-xs text-neutral-500">
+              Clearing a date removes that performance. The site treats the run as over
+              the day after the last date, so the home page stops advertising tickets on
+              its own.
+            </p>
+            <button
+              type="submit"
+              class="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
+            >
+              Save dates
+            </button>
+          </form>
+
+          <section class="space-y-3">
+            <h2 class="font-display font-semibold text-neutral-900">Home page</h2>
+            <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-6">
+              {show.isCurrent ? (
+                <>
+                  <p class="text-sm text-neutral-700 mb-4">
+                    This is the featured show on the home page.
+                  </p>
+                  <form method="post" action={`/admin/shows/${show.id}/feature`}>
+                    <input type="hidden" name="featured" value="0" />
+                    <button
+                      type="submit"
+                      class="px-5 py-2 bg-neutral-200 hover:bg-neutral-300 text-neutral-800 text-sm font-medium rounded-lg transition-colors"
+                    >
+                      Stop featuring it
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <>
+                  <p class="text-sm text-neutral-700 mb-4">
+                    Featuring this show replaces whichever show is featured now - only one
+                    can be.
+                  </p>
+                  <form method="post" action={`/admin/shows/${show.id}/feature`}>
+                    <input type="hidden" name="featured" value="1" />
+                    <button
+                      type="submit"
+                      class="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors"
+                    >
+                      Feature on the home page
+                    </button>
+                  </form>
+                </>
+              )}
+            </div>
+          </section>
+        </>
       )}
 
       {/* Artwork writes need show.update, which officers do not hold, but the
@@ -2548,6 +2924,37 @@ adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (
         </button>
       </form>
 
+      {canEditShow && can(c.get('role')!, 'show', 'delete') && (
+        <div class="bg-white rounded-xl ring-1 ring-red-200 p-6">
+          <h2 class="font-display font-semibold text-neutral-900">Delete this show</h2>
+          {deletable ? (
+            <>
+              <p class="text-sm text-neutral-600 mt-1 mb-4">
+                Nothing is recorded against it yet, so it can still be removed.
+              </p>
+              <form
+                method="post"
+                action={`/admin/shows/${show.id}/delete`}
+                onsubmit="return confirm('Delete this show?')"
+              >
+                <button
+                  type="submit"
+                  class="px-5 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  Delete show
+                </button>
+              </form>
+            </>
+          ) : (
+            <p class="text-sm text-neutral-600 mt-1">
+              This show has cast, crew, or photos recorded against it and can no longer be
+              deleted - removing it would erase the record of who performed in it. Stop
+              featuring it instead, and it will sit in the archive.
+            </p>
+          )}
+        </div>
+      )}
+
       <form method="post" action={`/admin/shows/${show.id}/crew`} class="space-y-3">
         <h2 class="font-display font-semibold text-neutral-900">Production team</h2>
         <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-4 space-y-2">
@@ -2694,3 +3101,75 @@ adminRoutes.post(
     return c.redirect(`/admin/shows/${c.req.param('id')}`, 302);
   },
 );
+adminRoutes.post(
+  '/admin/shows/:id/details',
+  requirePermission('show', 'update'),
+  async (c) => {
+    const showId = c.req.param('id');
+    const { values } = await readShowForm(c);
+    const year = Number.parseInt(values.year, 10);
+
+    await updateShow(getDb(c.env.DB), c.get('actor'), showId, {
+      title: values.title.length > 0 ? values.title : undefined,
+      season: values.season.length > 0 ? values.season : undefined,
+      year: Number.isFinite(year) ? year : undefined,
+      venue: values.venue.length > 0 ? values.venue : DEFAULT_VENUE,
+      synopsis: values.synopsis.length > 0 ? values.synopsis : undefined,
+      ticketUrl: values.ticketUrl.length > 0 ? values.ticketUrl : null,
+      isHighlighted: values.isHighlighted,
+    });
+
+    return c.redirect(`/admin/shows/${showId}`, 302);
+  },
+);
+
+adminRoutes.post(
+  '/admin/shows/:id/performances',
+  requirePermission('show', 'update'),
+  async (c) => {
+    const showId = c.req.param('id');
+    const form = await c.req.formData();
+    const dates = form.getAll('date').map(String);
+    const times = form.getAll('time').map(String);
+
+    await replacePerformances(
+      getDb(c.env.DB),
+      c.get('actor'),
+      showId,
+      dates.map((date, i) => ({ date, time: times[i] ?? '' })),
+    );
+
+    return c.redirect(`/admin/shows/${showId}`, 302);
+  },
+);
+
+adminRoutes.post(
+  '/admin/shows/:id/feature',
+  requirePermission('show', 'update'),
+  async (c) => {
+    const showId = c.req.param('id');
+    const form = await c.req.formData();
+    const wanted = String(form.get('featured') ?? '') === '1';
+
+    await setFeaturedShow(getDb(c.env.DB), c.get('actor'), wanted ? showId : null);
+    return c.redirect(`/admin/shows/${showId}`, 302);
+  },
+);
+
+adminRoutes.post(
+  '/admin/shows/:id/delete',
+  requirePermission('show', 'delete'),
+  async (c) => {
+    const showId = c.req.param('id');
+    const result = await deleteShow(getDb(c.env.DB), c.get('actor'), showId);
+
+    if (!result.ok) {
+      return c.redirect(
+        `/admin/shows/${showId}?error=${encodeURIComponent(result.error)}`,
+        302,
+      );
+    }
+    return c.redirect('/admin/shows', 302);
+  },
+);
+
