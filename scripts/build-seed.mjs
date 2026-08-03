@@ -84,10 +84,36 @@ stats.members = members.length;
 stats.memberPhotos = 0;
 stats.memberRoles = 0;
 
+/**
+ * Members who have appeared in a production.
+ *
+ * Built ahead of the member rows because shows are emitted later in this file
+ * but decide a member's starting visibility.
+ *
+ * These students' names and photographs were already published in a printed
+ * playbill and displayed in the theater lobby, so the site discloses nothing
+ * new about them and they start visible. A member with no cast or crew credit
+ * was never in a playbill, so that reasoning does not reach them - they start
+ * hidden, as does anyone added later, since the column default in the schema
+ * is `limited` and nothing here changes it for them.
+ */
+const credited = new Set();
+for (const { data } of readEntries('shows')) {
+  for (const c of [...(data.cast ?? []), ...(data.crew ?? [])]) {
+    if (c.memberId) credited.add(c.memberId);
+  }
+}
+stats.membersVisible = 0;
+stats.membersHidden = 0;
+
 emit('-- members');
 for (const { id, data } of members) {
   const photo = imageId('members', id, data.photo);
   if (photo) stats.memberPhotos++;
+
+  const visibility = credited.has(id) ? 'full' : 'limited';
+  if (visibility === 'full') stats.membersVisible++;
+  else stats.membersHidden++;
 
   emit(
     `INSERT INTO members (id,name,grade,graduation_year,photo_image_id,bio,instagram,visibility,is_active,is_officer,officer_title) VALUES (` +
@@ -99,9 +125,7 @@ for (const { id, data } of members) {
         q(photo),
         q(data.bio ?? null),
         q(data.instagram ?? null),
-        // Privacy by default. Every migrated member starts limited; opting in
-        // to a public photo and bio is a deliberate act by the member.
-        q('limited'),
+        q(visibility),
         q(data.isActive ?? true),
         q(data.isOfficer ?? false),
         q(data.officerTitle ?? null),

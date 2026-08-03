@@ -81,11 +81,21 @@ systemRoutes.get('/disclaimer', (c) =>
             Student Privacy
           </h2>
           <p>
-            Student names, photographs, and biographies appear on this site only where a
-            student has opted in. By default a student is listed by first name and last
-            initial only, with no photograph and no biography, and has no individual
-            profile page. A student may change this at any time, and may ask a board
-            member to remove their information entirely.
+            Students who have appeared in one of our productions are listed here by name,
+            with their photograph and biography where we have them, in the same way they
+            appeared in the printed program and on the display outside the theater.
+          </p>
+          <p>
+            Every other student &mdash; anyone who has not appeared in a production, and
+            everyone who joins from now on &mdash; is listed by first name and last
+            initial only, with no photograph, no biography, and no individual profile
+            page, unless they choose otherwise.
+          </p>
+          <p>
+            Any student may change this at any time, in either direction, without asking
+            anyone. Choosing to be listed by first name and last initial takes effect
+            immediately. A student may also ask a board member to remove their
+            information from the site entirely.
           </p>
         </section>
 

@@ -89,12 +89,39 @@ check('spirit_wear', entries('spiritwear').length, one('SELECT COUNT(*) FROM spi
 
 // --- invariants the migration must establish -------------------------------
 console.log('');
+// Visibility follows the playbill: a member who appeared in a production was
+// already named and photographed in a printed program, so they start visible.
+// Everyone else starts hidden, as does anyone added later. Both numbers are
+// derived from the source content rather than restated, so a member gaining or
+// losing a credit moves the expectation with them.
+const creditedInSource = new Set(
+  shows.flatMap((s) =>
+    [...(s.data.cast ?? []), ...(s.data.crew ?? [])].map((c) => c.memberId).filter(Boolean),
+  ),
+);
+const shouldBeVisible = members.filter((m) => creditedInSource.has(m.id)).length;
+
 check(
-  'every member defaults to limited',
-  members.length,
+  'members with a playbill credit are visible',
+  shouldBeVisible,
+  one("SELECT COUNT(*) FROM members WHERE visibility='full'"),
+);
+check(
+  'members with no credit stay hidden',
+  members.length - shouldBeVisible,
   one("SELECT COUNT(*) FROM members WHERE visibility='limited'"),
 );
-check('no member is public yet', 0, one("SELECT COUNT(*) FROM members WHERE visibility='full'"));
+// The invariant that matters: nobody is public without the disclosure that
+// justified making them public.
+check(
+  'no visible member lacks a credit',
+  0,
+  one(
+    `SELECT COUNT(*) FROM members m WHERE m.visibility='full'
+       AND NOT EXISTS (SELECT 1 FROM show_cast c WHERE c.member_id = m.id)
+       AND NOT EXISTS (SELECT 1 FROM show_crew w WHERE w.member_id = m.id)`,
+  ),
+);
 
 const sourceTba = shows.reduce(
   (n, s) =>
