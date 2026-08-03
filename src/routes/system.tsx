@@ -94,8 +94,15 @@ systemRoutes.get('/disclaimer', (c) =>
           <p>
             Any student may change this at any time, in either direction, without asking
             anyone. Choosing to be listed by first name and last initial takes effect
-            immediately. A student may also ask a board member to remove their
-            information from the site entirely.
+            immediately.
+          </p>
+          <p>
+            A student may also ask a board member to take their information down. We
+            remove the photograph, biography, and surname. Where a student appeared in a
+            past production, their first name and last initial remain against the role
+            they played &mdash; that is the record of who performed in the show, and the
+            printed program is otherwise its only copy. If you would like that removed as
+            well, please ask and we will talk it through.
           </p>
         </section>
 

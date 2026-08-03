@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm';
 import type { DB } from '~/db/queries';
-import { members, MEMBER_VISIBILITY } from '~/db/schema/content';
+import { members, MEMBER_VISIBILITY, type MemberVisibility } from '~/db/schema/content';
 import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
+import { buildDiff, isEmptyDiff } from '~/lib/audit/diff';
 import { writeWithAudit } from '~/lib/audit/write';
 import type { Actor } from '~/lib/audit/actor';
 import { slugify } from './news';
@@ -173,4 +174,136 @@ export async function reactivateMember(
   );
 
   return { reactivated: true };
+}
+
+export interface UpdateMemberInput {
+  name: string;
+  grade: Grade;
+  graduationYear: number | null;
+  bio: string | null;
+  photoImageId: string | null;
+  instagram: string | null;
+  visibility: MemberVisibility;
+  isOfficer: boolean;
+  officerTitle: string | null;
+  isActive: boolean;
+}
+
+/**
+ * Edits a member record.
+ *
+ * The caller decides which fields may be in the patch; this applies whatever
+ * arrives. Officer status is gated on `member.setOfficer` at the route, which
+ * is the only field on this form a student officer may not touch.
+ *
+ * Changing the name does not change the id. The id is the primary key and the
+ * public URL, and rewriting it would orphan every cast credit and audit row
+ * that points at it - those rows carry the id as plain text with no foreign
+ * key, so nothing would error, they would just quietly stop resolving.
+ */
+export async function updateMember(
+  db: DB,
+  actor: Actor,
+  id: string,
+  patch: Partial<UpdateMemberInput>,
+): Promise<{ updated: boolean }> {
+  const [current] = await db.select().from(members).where(eq(members.id, id)).limit(1);
+  if (!current) return { updated: false };
+
+  const set: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    if ((current as Record<string, unknown>)[key] === value) continue;
+    set[key] = value;
+  }
+  if (Object.keys(set).length === 0) return { updated: false };
+
+  const diff = buildDiff(
+    current as Record<string, unknown>,
+    { ...current, ...set } as Record<string, unknown>,
+    set,
+  );
+  if (isEmptyDiff(diff)) return { updated: false };
+
+  await writeWithAudit(
+    db,
+    actor,
+    [
+      db
+        .update(members)
+        .set({ ...set, updatedAt: new Date().toISOString() })
+        .where(eq(members.id, id)),
+    ],
+    {
+      // A visibility change is a privacy-relevant event worth finding on its
+      // own, even when it arrives alongside other edits.
+      action:
+        'visibility' in set
+          ? AUDIT_ACTION.MemberVisibilityChanged
+          : AUDIT_ACTION.MemberUpdated,
+      targetKind: AUDIT_ENTITY_KIND.Member,
+      targetId: id,
+      diff,
+      // Names the person edited, not just the id, so the log reads without a
+      // join - and so it survives a later name change.
+      payload: { memberName: current.name },
+    },
+  );
+
+  return { updated: true };
+}
+
+/**
+ * Honours a request to be taken off the site.
+ *
+ * Clears the photograph, biography, and social handle, forces visibility back
+ * to `limited`, and drops the member from the active roster.
+ *
+ * The row itself stays. `show_cast` and `show_crew` reference it with
+ * `onDelete: 'restrict'`, so a member who has ever been in a production cannot
+ * be deleted - and unlinking them would destroy the record of who played the
+ * part, which the printed playbill is then the only remaining copy of. What
+ * survives is a first name and last initial against a role.
+ */
+export async function removeMemberInformation(
+  db: DB,
+  actor: Actor,
+  id: string,
+): Promise<{ removed: boolean }> {
+  const [current] = await db.select().from(members).where(eq(members.id, id)).limit(1);
+  if (!current) return { removed: false };
+
+  const set = {
+    bio: null,
+    photoImageId: null,
+    instagram: null,
+    visibility: MEMBER_VISIBILITY.Limited,
+    isActive: false,
+  };
+
+  await writeWithAudit(
+    db,
+    actor,
+    [
+      db
+        .update(members)
+        .set({ ...set, updatedAt: new Date().toISOString() })
+        .where(eq(members.id, id)),
+    ],
+    {
+      action: AUDIT_ACTION.MemberInformationRemoved,
+      targetKind: AUDIT_ENTITY_KIND.Member,
+      targetId: id,
+      diff: buildDiff(
+        current as Record<string, unknown>,
+        { ...current, ...set } as Record<string, unknown>,
+        set,
+      ),
+      // "Who honoured my removal request, and when" is the question this row
+      // exists to answer, so the name is kept even though the record remains.
+      payload: { memberName: current.name },
+    },
+  );
+
+  return { removed: true };
 }

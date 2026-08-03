@@ -37,7 +37,10 @@ export const actorMiddleware = createMiddleware<AppEnv>(async (c, next) => {
       actor = {
         kind: AUDIT_ACTOR_KIND.User,
         id: u.id,
-        label: u.name ?? u.email ?? null,
+        // `||`, not `??`: a magic-link signup has no name and Better Auth
+        // stores an empty string rather than null, which `??` would happily
+        // keep - leaving every audit row that user writes with a blank "who".
+        label: u.name?.trim() || u.email || null,
         ip,
         userAgent,
       };

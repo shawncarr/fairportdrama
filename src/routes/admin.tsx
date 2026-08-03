@@ -38,7 +38,14 @@ import { createInvite, inviteStatus, revokeInvite } from '~/services/invites';
 import { replaceCast, replaceCrew } from '~/services/casting';
 import { updateShowImages } from '~/services/show-images';
 import { addGalleryImages, removeGalleryImage } from '~/services/gallery';
-import { GRADES, createMember, isGrade, reactivateMember } from '~/services/members';
+import {
+  GRADES,
+  createMember,
+  isGrade,
+  reactivateMember,
+  removeMemberInformation,
+  updateMember,
+} from '~/services/members';
 import {
   NEWS_CATEGORY_LABELS,
   createNewsPost,
@@ -851,7 +858,14 @@ adminRoutes.get('/admin/members', requirePermission('member', 'update'), async (
                   <td class="px-4 py-2">
                     <input type="checkbox" name="memberIds" value={m.id} />
                   </td>
-                  <td class="px-4 py-2 text-neutral-900">{m.name}</td>
+                  <td class="px-4 py-2">
+                    <a
+                      href={`/admin/members/${m.id}`}
+                      class="text-primary-600 hover:text-primary-700"
+                    >
+                      {m.name}
+                    </a>
+                  </td>
                   <td class="px-4 py-2 text-neutral-500">{m.grade}</td>
                   <td class="px-4 py-2">
                     <span
@@ -1310,6 +1324,371 @@ adminRoutes.post(
     }
 
     return c.redirect(`/admin/members?changed=${changed}`, 302);
+  },
+);
+
+// --------------------------------------------------------- edit a member
+//
+// Registered after /admin/members/new and /admin/members/visibility so those
+// literal paths are not swallowed by the :id parameter.
+
+adminRoutes.get('/admin/members/:id', requirePermission('member', 'update'), async (c) => {
+  const db = getDb(c.env.DB);
+  const images = c.get('images');
+  const role = c.get('role')!;
+  const id = c.req.param('id');
+
+  const [member] = await db.select().from(members).where(eq(members.id, id)).limit(1);
+  if (!member) return c.notFound();
+
+  const queued = await db
+    .select()
+    .from(pendingEdits)
+    .where(
+      and(eq(pendingEdits.targetId, id), eq(pendingEdits.status, PENDING_EDIT_STATUS.Pending)),
+    );
+
+  const canSetOfficer = can(role, 'member', 'setOfficer');
+  const photo = images.deliveryUrl(member.photoImageId, IMAGE_VARIANT.Thumb);
+  const saved = c.req.query('saved');
+  const error = c.req.query('error');
+  const field =
+    'w-full px-4 py-2.5 rounded-lg border border-neutral-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none';
+
+  return c.render(
+    <div class="max-w-2xl space-y-6">
+      <div>
+        <a href="/admin/members" class="text-sm text-primary-600 hover:text-primary-700">
+          &larr; All members
+        </a>
+        <h1 class="font-display text-2xl font-bold text-neutral-900 mt-2">{member.name}</h1>
+        <p class="text-sm text-neutral-500">
+          {member.isActive ? 'On the roster' : 'Not on the roster'}
+          {' · '}
+          {member.visibility === MEMBER_VISIBILITY.Full
+            ? 'shown publicly'
+            : `shown as ${displayName({ name: member.name, visibility: MEMBER_VISIBILITY.Limited })}`}
+        </p>
+      </div>
+
+      {saved && (
+        <p class="rounded-lg bg-green-50 text-green-800 text-sm px-4 py-3 ring-1 ring-green-200">
+          {saved === 'removed'
+            ? 'Their photo, biography, and full name have been taken down.'
+            : 'Saved.'}
+        </p>
+      )}
+      {error && (
+        <p class="rounded-lg bg-red-50 text-red-800 text-sm px-4 py-3 ring-1 ring-red-200">
+          {error}
+        </p>
+      )}
+
+      {queued.length > 0 && (
+        <p class="rounded-lg bg-amber-50 text-amber-900 text-sm px-4 py-3 ring-1 ring-amber-200">
+          This member has {queued.length} change{queued.length === 1 ? '' : 's'} waiting in{' '}
+          <a href="/admin/approvals" class="underline">
+            approvals
+          </a>
+          . Approving later will overwrite whatever you set here.
+        </p>
+      )}
+
+      <form
+        method="post"
+        action={`/admin/members/${member.id}`}
+        enctype="multipart/form-data"
+        class="space-y-5"
+      >
+        <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 space-y-4">
+          <h2 class="font-display font-semibold text-neutral-900">Roster</h2>
+
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label for="e-name" class="block text-sm font-medium text-neutral-700 mb-1">
+                Full name
+              </label>
+              <input
+                type="text"
+                id="e-name"
+                name="name"
+                required
+                maxlength={120}
+                value={member.name}
+                class={field}
+              />
+              <p class="text-xs text-neutral-500 mt-1">
+                The web address stays <code>/members/{member.id}</code> even if the name
+                changes, so existing links and their show credits keep working.
+              </p>
+            </div>
+
+            <div>
+              <label for="e-grade" class="block text-sm font-medium text-neutral-700 mb-1">
+                Grade
+              </label>
+              <select id="e-grade" name="grade" class={`${field} bg-white`}>
+                {GRADES.map((g) => (
+                  <option value={g} selected={member.grade === g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label for="e-year" class="block text-sm font-medium text-neutral-700 mb-1">
+                Graduation year
+              </label>
+              <input
+                type="text"
+                id="e-year"
+                name="graduationYear"
+                inputmode="numeric"
+                value={member.graduationYear ? String(member.graduationYear) : ''}
+                class={field}
+              />
+            </div>
+          </div>
+
+          <label class="flex items-center gap-2 text-sm text-neutral-700">
+            <input type="checkbox" name="isActive" value="1" checked={member.isActive} />
+            Currently on the roster
+          </label>
+
+          {canSetOfficer && (
+            <div class="pt-3 border-t border-neutral-100 space-y-3">
+              <label class="flex items-center gap-2 text-sm text-neutral-700">
+                <input type="checkbox" name="isOfficer" value="1" checked={member.isOfficer} />
+                Club officer
+              </label>
+              <div>
+                <label
+                  for="e-title"
+                  class="block text-sm font-medium text-neutral-700 mb-1"
+                >
+                  Officer title
+                </label>
+                <input
+                  type="text"
+                  id="e-title"
+                  name="officerTitle"
+                  maxlength={60}
+                  value={member.officerTitle ?? ''}
+                  class={field}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 space-y-4">
+          <div>
+            <h2 class="font-display font-semibold text-neutral-900">Profile</h2>
+            <p class="text-sm text-neutral-600 mt-1">
+              This is what the member writes about themselves. Editing it here publishes
+              immediately, with no review, and your name is recorded against the change.
+            </p>
+          </div>
+
+          <div>
+            <label for="e-bio" class="block text-sm font-medium text-neutral-700 mb-1">
+              Bio
+            </label>
+            <textarea id="e-bio" name="bio" rows={5} maxlength={2000} class={field}>
+              {member.bio ?? ''}
+            </textarea>
+          </div>
+
+          <div>
+            <label for="e-insta" class="block text-sm font-medium text-neutral-700 mb-1">
+              Instagram handle
+            </label>
+            <input
+              type="text"
+              id="e-insta"
+              name="instagram"
+              maxlength={64}
+              value={member.instagram ?? ''}
+              class={field}
+            />
+          </div>
+
+          <div>
+            <p class="block text-sm font-medium text-neutral-700 mb-1">Photo</p>
+            <div class="flex items-start gap-4">
+              {photo ? (
+                <img
+                  src={photo}
+                  alt=""
+                  class="w-24 h-24 rounded-lg object-cover ring-1 ring-neutral-200 shrink-0"
+                />
+              ) : (
+                <div class="w-24 h-24 rounded-lg bg-neutral-100 ring-1 ring-neutral-200 shrink-0 flex items-center justify-center text-xs text-neutral-400">
+                  None
+                </div>
+              )}
+              <div class="flex-1">
+                <input
+                  type="file"
+                  name="photo"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  class="w-full text-sm text-neutral-600 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-neutral-100 file:text-neutral-800 file:font-medium hover:file:bg-neutral-200"
+                />
+                <p class="text-xs text-neutral-500 mt-2">
+                  Up to {MAX_IMAGE_BYTES / 1024 / 1024} MB. Leave empty to keep the current
+                  photo.
+                </p>
+                {member.photoImageId && (
+                  <label class="flex items-center gap-2 text-sm text-neutral-700 mt-3">
+                    <input type="checkbox" name="removePhoto" value="1" />
+                    Remove the photo
+                  </label>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 space-y-4">
+          <h2 class="font-display font-semibold text-neutral-900">Public visibility</h2>
+
+          {([MEMBER_VISIBILITY.Limited, MEMBER_VISIBILITY.Full] as const).map((value) => (
+            <label class="flex items-start gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="visibility"
+                value={value}
+                checked={member.visibility === value}
+                class="mt-1"
+              />
+              <span>
+                <span class="block font-medium text-neutral-900">
+                  {VISIBILITY_LABELS[value]}
+                </span>
+                <span class="block text-sm text-neutral-500">
+                  {value === MEMBER_VISIBILITY.Limited
+                    ? 'No photo, no bio, no profile page.'
+                    : 'Full name, photo, and bio, with their own page.'}
+                </span>
+              </span>
+            </label>
+          ))}
+
+          <label class="flex items-start gap-2 text-sm text-neutral-700 pt-2 border-t border-neutral-100">
+            <input type="checkbox" name="acknowledged" class="mt-0.5" />
+            <span>
+              If making them public: I have confirmed a photo release is on file for this
+              member.
+            </span>
+          </label>
+        </div>
+
+        <button
+          type="submit"
+          class="px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
+        >
+          Save
+        </button>
+      </form>
+
+      <div class="bg-white rounded-xl ring-1 ring-red-200 p-6">
+        <h2 class="font-display font-semibold text-neutral-900">
+          Remove their information
+        </h2>
+        <p class="text-sm text-neutral-600 mt-1 mb-4">
+          For a student or family asking to be taken off the site. Clears the photo,
+          biography, and handle, hides the surname, and takes them off the roster. Their
+          part in past productions stays, credited as{' '}
+          {displayName({ name: member.name, visibility: MEMBER_VISIBILITY.Limited })} -
+          removing that would erase the record of who performed the role.
+        </p>
+        <form
+          method="post"
+          action={`/admin/members/${member.id}/remove`}
+          onsubmit="return confirm('Take down this member’s photo, biography, and surname?')"
+        >
+          <button
+            type="submit"
+            class="px-5 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            Remove their information
+          </button>
+        </form>
+      </div>
+    </div>,
+    { title: member.name },
+  );
+});
+
+adminRoutes.post('/admin/members/:id', requirePermission('member', 'update'), async (c) => {
+  const db = getDb(c.env.DB);
+  const id = c.req.param('id');
+  const role = c.get('role')!;
+  const canSetOfficer = can(role, 'member', 'setOfficer');
+
+  const [current] = await db.select().from(members).where(eq(members.id, id)).limit(1);
+  if (!current) return c.notFound();
+
+  const form = await c.req.formData();
+  const back = (qs: string) => c.redirect(`/admin/members/${id}${qs}`, 302);
+
+  const wants = String(form.get('visibility') ?? '');
+  const visibility =
+    wants === MEMBER_VISIBILITY.Full || wants === MEMBER_VISIBILITY.Limited ? wants : undefined;
+
+  // Same gate as the bulk tool, so this is not a quieter route to the same
+  // change. Only asked for when exposure increases; withdrawing is always free.
+  if (
+    visibility === MEMBER_VISIBILITY.Full &&
+    current.visibility !== MEMBER_VISIBILITY.Full &&
+    !form.get('acknowledged')
+  ) {
+    return back(
+      `?error=${encodeURIComponent('Confirm a photo release is on file before making this member public.')}`,
+    );
+  }
+
+  let photoImageId: string | null | undefined;
+  if (form.get('removePhoto')) {
+    photoImageId = null;
+  } else {
+    const upload = await uploadImage(c.get('images'), form.get('photo'));
+    if (upload && 'error' in upload) return back(`?error=${encodeURIComponent(upload.error)}`);
+    photoImageId = upload?.imageId;
+  }
+
+  const name = String(form.get('name') ?? '').trim().replace(/\s+/g, ' ');
+  const grade = String(form.get('grade') ?? '');
+  const year = Number.parseInt(String(form.get('graduationYear') ?? ''), 10);
+  const bio = String(form.get('bio') ?? '').trim();
+  const instagram = String(form.get('instagram') ?? '').trim();
+  const title = String(form.get('officerTitle') ?? '').trim();
+
+  await updateMember(db, c.get('actor'), id, {
+    name: name.length > 0 ? name : undefined,
+    grade: isGrade(grade) ? grade : undefined,
+    graduationYear: Number.isFinite(year) ? year : null,
+    bio: bio.length > 0 ? bio : null,
+    instagram: instagram.length > 0 ? instagram : null,
+    photoImageId,
+    visibility,
+    isActive: Boolean(form.get('isActive')),
+    // Dropped for a role without member.setOfficer, so posting the field by
+    // hand cannot promote anyone.
+    isOfficer: canSetOfficer ? Boolean(form.get('isOfficer')) : undefined,
+    officerTitle: canSetOfficer ? (title.length > 0 ? title : null) : undefined,
+  });
+
+  return back('?saved=1');
+});
+
+adminRoutes.post(
+  '/admin/members/:id/remove',
+  requirePermission('member', 'update'),
+  async (c) => {
+    await removeMemberInformation(getDb(c.env.DB), c.get('actor'), c.req.param('id'));
+    return c.redirect(`/admin/members/${c.req.param('id')}?saved=removed`, 302);
   },
 );
 

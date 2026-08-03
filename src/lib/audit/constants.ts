@@ -31,6 +31,8 @@ export const AUDIT_ACTION = {
   MemberUpdated: 'Member.Updated',
   MemberDeleted: 'Member.Deleted',
   MemberVisibilityChanged: 'Member.VisibilityChanged',
+  /** A removal request honoured: photo, bio, and surname taken down. */
+  MemberInformationRemoved: 'Member.InformationRemoved',
   MemberEditSubmitted: 'Member.EditSubmitted',
   MemberEditApproved: 'Member.EditApproved',
   MemberEditRejected: 'Member.EditRejected',
