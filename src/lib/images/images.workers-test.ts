@@ -122,15 +122,37 @@ describe('local store round-trips bytes', () => {
 
 describe('store selection', () => {
   // Only the fields getImageStore reads; `env` itself is not spreadable.
-  const base = (hash: string) =>
+  const base = (hash: string, appEnv?: string) =>
     ({
       KV: env.KV,
       IMAGES: fakeImages().binding,
       CF_IMAGES_ACCOUNT_HASH: hash,
+      APP_ENV: appEnv,
     }) as never;
 
-  it('uses the local shim when no account hash is configured', () => {
-    const store = getImageStore(base(''), 'https://localhost:8787/');
+  it('uses Cloudflare only on the deployed site', () => {
+    const store = getImageStore(base('realhash', 'production'), 'https://fairportdrama.com/');
+    expect(store.name).toBe('CloudflareImages');
+  });
+
+  // The point of keying on a secret: `wrangler dev` cannot read deployed
+  // secrets, so development gets the shim without opting out. Keying on the
+  // hash instead sent local uploads into production Images storage.
+  it('uses the shim when APP_ENV is absent, even with a real hash', () => {
+    const store = getImageStore(base('realhash'), 'http://localhost:8787/');
+    expect(store.name).toBe('LocalImages');
+  });
+
+  it('uses the shim for any APP_ENV that is not exactly production', () => {
+    for (const value of ['development', 'staging', 'Production', 'production ', '']) {
+      expect(getImageStore(base('realhash', value), 'http://localhost:8787/').name).toBe(
+        'LocalImages',
+      );
+    }
+  });
+
+  it('uses the shim when no account hash is configured', () => {
+    const store = getImageStore(base('', 'production'), 'https://localhost:8787/');
     expect(store.name).toBe('LocalImages');
   });
 
@@ -138,15 +160,19 @@ describe('store selection', () => {
   // exists, so it must not be mistaken for real configuration.
   it('treats the placeholder hash as unconfigured', () => {
     const store = getImageStore(
-      base('PLACEHOLDER_IMAGES_ACCOUNT_HASH'),
+      base('PLACEHOLDER_IMAGES_ACCOUNT_HASH', 'production'),
       'https://localhost:8787/',
     );
     expect(store.name).toBe('LocalImages');
   });
 
-  it('switches to Cloudflare as soon as a real hash is present', () => {
-    const store = getImageStore(base('realhash'), 'https://fairportdrama.com/');
-    expect(store.name).toBe('CloudflareImages');
+  // Missing the hash in production is a misconfiguration, but serving a site
+  // with broken images beats throwing on every request.
+  it('falls back rather than building URLs with an empty hash', () => {
+    const store = getImageStore(base('', 'production'), 'https://fairportdrama.com/p');
+    expect(store.deliveryUrl('x', IMAGE_VARIANT.Thumb)).toBe(
+      'https://fairportdrama.com/dev/images/x/thumb',
+    );
   });
 
   it('derives the local base URL from the request, so ports do not need configuring', () => {

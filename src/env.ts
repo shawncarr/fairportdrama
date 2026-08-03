@@ -8,6 +8,21 @@ export interface Bindings {
   IMAGES: ImagesBinding;
   EMAIL: SendEmail;
 
+  /**
+   * `production` on the deployed Worker, absent everywhere else.
+   *
+   * Set with `wrangler secret put` rather than as a var in wrangler.jsonc,
+   * which is what makes it safe: `wrangler dev` cannot read deployed secrets,
+   * so local development sees `undefined` and falls back to local behaviour
+   * without anyone having to remember a flag. A var would be inherited by
+   * `wrangler dev` and would need a .dev.vars override to avoid pointing local
+   * work at production resources.
+   *
+   * Not sensitive in itself - it is a deployment marker that happens to be
+   * carried as a secret for that absence-by-default property.
+   */
+  APP_ENV?: string;
+
   SITE_URL: string;
 
   CONTACT_EMAIL: string;

@@ -65,14 +65,18 @@
   "vars": {
     "SITE_URL": "https://fairportdrama.com",
     // Appears in every public image URL, so a var rather than a secret.
-    // While this is the placeholder the app falls back to the KV-backed local
-    // image shim, so development works before an Images plan exists. Setting a
-    // real hash switches every delivery URL to imagedelivery.net with no other
-    // change.
-    "CF_IMAGES_ACCOUNT_HASH": "PLACEHOLDER_IMAGES_ACCOUNT_HASH",
+    // Required for delivery URLs, but it does not decide which store is used -
+    // APP_ENV does. It is committed here, so keying selection on it sent
+    // `wrangler dev` at the real Images account.
+    "CF_IMAGES_ACCOUNT_HASH": "WkmTv5FeGiLo5ACVeQNYPw",
   },
 
   // Secrets, set via `wrangler secret put`:
+  //   APP_ENV                 - set to `production` on the deployed Worker
+  //                             only. Carried as a secret rather than a var
+  //                             so `wrangler dev`, which cannot read deployed
+  //                             secrets, sees it as absent and uses local
+  //                             resources by default instead of by opting out.
   //   CONTACT_EMAIL           - contact form destination
   //   TURNSTILE_SECRET_KEY    - contact form spam check
   //   BETTER_AUTH_SECRET      - session signing
