@@ -10,12 +10,15 @@ import { APP_ROLE, type AppRole } from '~/db/schema/governance';
 export const STATEMENT = {
   show: ['create', 'update', 'delete'],
   cast: ['assign'],
-  news: ['create', 'update', 'publish', 'delete'],
+  news: ['create', 'update', 'delete'],
   // `setOfficer` is separate from `update` on purpose: officers may build the
   // roster, but naming who holds a club office is not something a student
   // should be able to do for themselves or a friend.
-  member: ['create', 'update', 'delete', 'setOfficer'],
-  memberSelf: ['update', 'setVisibility'],
+  member: ['create', 'update', 'setOfficer'],
+  // Visibility rides on `update`: the split that matters for a self-edit is
+  // whether a field needs approval, which selfEditNeedsApproval decides, not
+  // a second permission nothing ever checked.
+  memberSelf: ['update'],
   memberEdit: ['approve'],
   sponsor: ['manage'],
   spiritwear: ['manage'],
@@ -40,9 +43,9 @@ const GRANTS: Record<AppRole, RoleGrants> = {
   [APP_ROLE.Admin]: {
     show: ['create', 'update', 'delete'],
     cast: ['assign'],
-    news: ['create', 'update', 'publish', 'delete'],
-    member: ['create', 'update', 'delete', 'setOfficer'],
-    memberSelf: ['update', 'setVisibility'],
+    news: ['create', 'update', 'delete'],
+    member: ['create', 'update', 'setOfficer'],
+    memberSelf: ['update'],
     memberEdit: ['approve'],
     sponsor: ['manage'],
     spiritwear: ['manage'],
@@ -55,9 +58,9 @@ const GRANTS: Record<AppRole, RoleGrants> = {
   [APP_ROLE.Staff]: {
     show: ['create', 'update', 'delete'],
     cast: ['assign'],
-    news: ['create', 'update', 'publish', 'delete'],
-    member: ['create', 'update', 'delete', 'setOfficer'],
-    memberSelf: ['update', 'setVisibility'],
+    news: ['create', 'update', 'delete'],
+    member: ['create', 'update', 'setOfficer'],
+    memberSelf: ['update'],
     memberEdit: ['approve'],
     sponsor: ['manage'],
     spiritwear: ['manage'],
@@ -73,16 +76,16 @@ const GRANTS: Record<AppRole, RoleGrants> = {
   // Revoking it is a one-line change here.
   [APP_ROLE.Officer]: {
     cast: ['assign'],
-    news: ['create', 'update', 'publish', 'delete'],
+    news: ['create', 'update', 'delete'],
     member: ['create', 'update'],
-    memberSelf: ['update', 'setVisibility'],
+    memberSelf: ['update'],
     memberEdit: ['approve'],
     audit: ['readOwn'],
   },
 
   // Any student with an account.
   [APP_ROLE.Member]: {
-    memberSelf: ['update', 'setVisibility'],
+    memberSelf: ['update'],
     audit: ['readOwn'],
   },
 };

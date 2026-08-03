@@ -35,6 +35,7 @@ import { IMAGE_VARIANT, MAX_IMAGE_BYTES, uploadImage, type ImageStore } from '~/
 import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import { writeWithAudit } from '~/lib/audit/write';
 import { createInvite, inviteStatus, revokeInvite } from '~/services/invites';
+import { assignRole, linkMember, revokeAccess } from '~/services/accounts';
 import { replaceCast, replaceCrew } from '~/services/casting';
 import { updateShowImages } from '~/services/show-images';
 import {
@@ -1703,10 +1704,17 @@ adminRoutes.post(
 
 // ---------------------------------------------------------------- accounts
 
+const ROLE_CHOICES = [
+  { value: APP_ROLE.Member, label: 'Member - own profile only' },
+  { value: APP_ROLE.Officer, label: 'Officer - news, cast lists, approvals' },
+  { value: APP_ROLE.Staff, label: 'Staff - everything except accounts' },
+  { value: APP_ROLE.Admin, label: 'Admin - everything' },
+] as const;
+
 adminRoutes.get('/admin/accounts', requirePermission('account', 'invite'), async (c) => {
   const db = getDb(c.env.DB);
 
-  const [allInvites, accounts, unlinkedMembers] = await Promise.all([
+  const [allInvites, accounts, activeMembers] = await Promise.all([
     db.select().from(invites).orderBy(desc(invites.createdAt)).limit(100),
     db
       .select({
@@ -1725,12 +1733,26 @@ adminRoutes.get('/admin/accounts', requirePermission('account', 'invite'), async
       .orderBy(members.name),
   ]);
 
+  // Members already claimed by another account, so the link dropdown cannot
+  // offer a choice the service will refuse. One account per member.
+  const claimed = new Map(
+    accounts.filter((a) => a.memberId).map((a) => [a.memberId as string, a.id]),
+  );
+  const linkableFor = (currentMemberId: string | null) =>
+    activeMembers.filter((m) => !claimed.has(m.id) || m.id === currentMemberId);
+
   const error = c.req.query('error');
   const sent = c.req.query('sent');
 
   return c.render(
     <div class="space-y-8">
       <h1 class="font-display text-2xl font-bold text-neutral-900">Accounts</h1>
+
+      {c.req.query('error') && (
+        <p class="rounded-lg bg-red-50 text-red-800 text-sm px-4 py-3 ring-1 ring-red-200">
+          {c.req.query('error')}
+        </p>
+      )}
 
       {error && (
         <p class="rounded-lg bg-red-50 text-red-800 text-sm px-4 py-3 ring-1 ring-red-200">
@@ -1797,7 +1819,7 @@ adminRoutes.get('/admin/accounts', requirePermission('account', 'invite'), async
               class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 bg-white"
             >
               <option value="">No profile - board member or volunteer</option>
-              {unlinkedMembers.map((m) => (
+              {linkableFor(null).map((m) => (
                 <option value={m.id}>
                   {m.name} ({m.grade})
                 </option>
@@ -1883,27 +1905,114 @@ adminRoutes.get('/admin/accounts', requirePermission('account', 'invite'), async
             Nobody has signed in yet.
           </p>
         ) : (
-          <div class="bg-white rounded-xl ring-1 ring-neutral-200 overflow-x-auto">
-            <table class="w-full text-sm">
-              <thead class="bg-neutral-50 text-left">
-                <tr>
-                  <th class="px-4 py-3 font-medium text-neutral-600">Email</th>
-                  <th class="px-4 py-3 font-medium text-neutral-600">Name</th>
-                  <th class="px-4 py-3 font-medium text-neutral-600">Role</th>
-                  <th class="px-4 py-3 font-medium text-neutral-600">Profile</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-neutral-100">
-                {accounts.map((a) => (
-                  <tr>
-                    <td class="px-4 py-2 text-neutral-900">{a.email}</td>
-                    <td class="px-4 py-2 text-neutral-600">{a.name}</td>
-                    <td class="px-4 py-2 text-neutral-600">{a.role ?? 'none'}</td>
-                    <td class="px-4 py-2 text-neutral-500">{a.memberId ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div class="space-y-3">
+            {accounts.map((a) => (
+              <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-5">
+                <div class="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+                  <div>
+                    <p class="font-medium text-neutral-900">{a.email}</p>
+                    <p class="text-sm text-neutral-500">
+                      {a.name || 'no name set'}
+                      {a.role ? '' : ' · no access'}
+                    </p>
+                  </div>
+                  {a.id === c.get('actor').id && (
+                    <span class="px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600 text-xs">
+                      you
+                    </span>
+                  )}
+                </div>
+
+                <div class="grid gap-4 sm:grid-cols-2">
+                  <form
+                    method="post"
+                    action={`/admin/accounts/user/${a.id}/role`}
+                    class="flex items-end gap-2"
+                  >
+                    <div class="flex-1">
+                      <label
+                        for={`role-${a.id}`}
+                        class="block text-xs font-medium text-neutral-600 mb-1"
+                      >
+                        Role
+                      </label>
+                      <select
+                        id={`role-${a.id}`}
+                        name="role"
+                        class="w-full px-3 py-2 rounded-lg border border-neutral-300 bg-white text-sm"
+                      >
+                        <option value="" selected={!a.role}>
+                          None - no access
+                        </option>
+                        {ROLE_CHOICES.map((r) => (
+                          <option value={r.value} selected={a.role === r.value}>
+                            {r.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      type="submit"
+                      class="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-sm font-medium rounded-lg transition-colors"
+                    >
+                      Set
+                    </button>
+                  </form>
+
+                  <form
+                    method="post"
+                    action={`/admin/accounts/user/${a.id}/link`}
+                    class="flex items-end gap-2"
+                  >
+                    <div class="flex-1">
+                      <label
+                        for={`link-${a.id}`}
+                        class="block text-xs font-medium text-neutral-600 mb-1"
+                      >
+                        Member profile
+                      </label>
+                      <select
+                        id={`link-${a.id}`}
+                        name="memberId"
+                        class="w-full px-3 py-2 rounded-lg border border-neutral-300 bg-white text-sm"
+                      >
+                        <option value="" selected={!a.memberId}>
+                          Not linked
+                        </option>
+                        {linkableFor(a.memberId).map((m) => (
+                          <option value={m.id} selected={a.memberId === m.id}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      type="submit"
+                      class="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-sm font-medium rounded-lg transition-colors"
+                    >
+                      Set
+                    </button>
+                  </form>
+                </div>
+
+                {a.role && (
+                  <div class="mt-4 pt-3 border-t border-neutral-100 flex justify-end">
+                    <form
+                      method="post"
+                      action={`/admin/accounts/user/${a.id}/revoke`}
+                      onsubmit="return confirm('End this account’s access and sign them out?')"
+                    >
+                      <button
+                        type="submit"
+                        class="px-3 py-2 text-sm text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                      >
+                        Remove access
+                      </button>
+                    </form>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </section>
@@ -1957,6 +2066,65 @@ adminRoutes.post(
     return c.redirect('/admin/accounts', 302);
   },
 );
+// Namespaced under /user/ so these are not confused with the invite routes
+// above, where :id is an invite id rather than an account id.
+
+const isAppRole = (v: string): v is AppRole =>
+  (Object.values(APP_ROLE) as string[]).includes(v);
+
+adminRoutes.post(
+  '/admin/accounts/user/:id/role',
+  requirePermission('account', 'assignRole'),
+  async (c) => {
+    const form = await c.req.formData();
+    const raw = String(form.get('role') ?? '');
+    const result = await assignRole(
+      getDb(c.env.DB),
+      c.get('actor'),
+      c.req.param('id'),
+      isAppRole(raw) ? raw : null,
+    );
+
+    return c.redirect(
+      result.ok ? '/admin/accounts' : `/admin/accounts?error=${encodeURIComponent(result.error)}`,
+      302,
+    );
+  },
+);
+
+adminRoutes.post(
+  '/admin/accounts/user/:id/link',
+  requirePermission('account', 'link'),
+  async (c) => {
+    const form = await c.req.formData();
+    const memberId = String(form.get('memberId') ?? '').trim();
+    const result = await linkMember(
+      getDb(c.env.DB),
+      c.get('actor'),
+      c.req.param('id'),
+      memberId.length > 0 ? memberId : null,
+    );
+
+    return c.redirect(
+      result.ok ? '/admin/accounts' : `/admin/accounts?error=${encodeURIComponent(result.error)}`,
+      302,
+    );
+  },
+);
+
+adminRoutes.post(
+  '/admin/accounts/user/:id/revoke',
+  requirePermission('account', 'revoke'),
+  async (c) => {
+    const result = await revokeAccess(getDb(c.env.DB), c.get('actor'), c.req.param('id'));
+
+    return c.redirect(
+      result.ok ? '/admin/accounts' : `/admin/accounts?error=${encodeURIComponent(result.error)}`,
+      302,
+    );
+  },
+);
+
 
 // ---------------------------------------------------------------- news
 

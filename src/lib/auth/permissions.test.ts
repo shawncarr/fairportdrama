@@ -48,11 +48,9 @@ describe('permission matrix', () => {
         'member.create',
         'member.update',
         'memberEdit.approve',
-        'memberSelf.setVisibility',
         'memberSelf.update',
         'news.create',
         'news.delete',
-        'news.publish',
         'news.update',
       ].sort(),
     );
@@ -60,7 +58,7 @@ describe('permission matrix', () => {
 
   it('member holds only self-service permissions', () => {
     expect(granted(APP_ROLE.Member).sort()).toEqual(
-      ['audit.readOwn', 'memberSelf.setVisibility', 'memberSelf.update'].sort(),
+      ['audit.readOwn', 'memberSelf.update'].sort(),
     );
   });
 });
@@ -87,9 +85,10 @@ describe('privilege boundaries that matter', () => {
     }
   });
 
-  it('students cannot delete members, and cannot touch shows or sponsors', () => {
-    expect(can(APP_ROLE.Officer, 'member', 'delete')).toBe(false);
+  it('students cannot create or delete shows, or touch sponsors', () => {
     expect(can(APP_ROLE.Officer, 'show', 'create')).toBe(false);
+    expect(can(APP_ROLE.Officer, 'show', 'delete')).toBe(false);
+    expect(can(APP_ROLE.Officer, 'show', 'update')).toBe(false);
     expect(can(APP_ROLE.Officer, 'sponsor', 'manage')).toBe(false);
     expect(can(APP_ROLE.Officer, 'spiritwear', 'manage')).toBe(false);
   });
