@@ -17,9 +17,11 @@ export interface Bindings {
   BETTER_AUTH_SECRET: string;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
-  CF_IMAGES_ACCOUNT_ID: string;
-  CF_IMAGES_API_TOKEN: string;
-  /** Appears in every public delivery URL, so a var rather than a secret. */
+  /**
+   * Appears in every public delivery URL, so a var rather than a secret, and
+   * the only Images configuration the Worker needs - uploads go through the
+   * IMAGES binding, which requires no token.
+   */
   CF_IMAGES_ACCOUNT_HASH: string;
 }
 

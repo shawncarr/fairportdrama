@@ -78,8 +78,11 @@
   //   BETTER_AUTH_SECRET      - session signing
   //   GOOGLE_CLIENT_ID        - Google SSO
   //   GOOGLE_CLIENT_SECRET    - Google SSO
-  //   CF_IMAGES_ACCOUNT_ID    - Direct Creator Upload
-  //   CF_IMAGES_API_TOKEN     - Direct Creator Upload
+  //
+  // Cloudflare Images needs no secret at runtime: uploads go through the
+  // IMAGES binding. CF_IMAGES_ACCOUNT_ID and CF_IMAGES_API_TOKEN are needed
+  // only by scripts/upload-images.mjs, which runs locally against the REST
+  // API to seed the archive, and are read from .dev.vars there.
   //
   // Local development uses .dev.vars (gitignored).
 }

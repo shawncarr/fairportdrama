@@ -8,11 +8,43 @@ import { IMAGE_VARIANT, ogImageUrl } from './types';
 const local = () =>
   new LocalImageStore({ kv: env.KV, baseUrl: 'https://dev.example.com' });
 
-const cloudflare = () =>
+/**
+ * A fake Images binding. Real hosted-image calls need a paid Images account,
+ * which miniflare has no way to emulate, so the store is exercised against a
+ * stand-in that records what it was asked to do.
+ */
+const fakeImages = () => {
+  const uploaded: Array<{ bytes: number; id?: string; signed?: boolean }> = [];
+  const deleted: string[] = [];
+  const binding = {
+    hosted: {
+      upload: async (image: ArrayBuffer, options?: { id?: string; requireSignedURLs?: boolean }) => {
+        uploaded.push({
+          bytes: image.byteLength,
+          id: options?.id,
+          signed: options?.requireSignedURLs,
+        });
+        return { id: options?.id ?? 'generated-id', requireSignedURLs: false, variants: [] };
+      },
+      list: async () => ({ images: [], listComplete: true }),
+      image: (imageId: string) => ({
+        details: async () => null,
+        bytes: async () => null,
+        update: async () => ({ id: imageId, requireSignedURLs: false, variants: [] }),
+        delete: async () => {
+          deleted.push(imageId);
+          return true;
+        },
+      }),
+    },
+  } as unknown as ImagesBinding;
+  return { binding, uploaded, deleted };
+};
+
+const cloudflare = (images?: ImagesBinding) =>
   new CloudflareImageStore({
     accountHash: 'HASH123',
-    accountId: 'acct',
-    apiToken: 'token',
+    images: images ?? fakeImages().binding,
   });
 
 describe('delivery URLs', () => {
@@ -93,9 +125,8 @@ describe('store selection', () => {
   const base = (hash: string) =>
     ({
       KV: env.KV,
+      IMAGES: fakeImages().binding,
       CF_IMAGES_ACCOUNT_HASH: hash,
-      CF_IMAGES_ACCOUNT_ID: 'acct',
-      CF_IMAGES_API_TOKEN: 'token',
     }) as never;
 
   it('uses the local shim when no account hash is configured', () => {
@@ -123,5 +154,39 @@ describe('store selection', () => {
     expect(store.deliveryUrl('x', IMAGE_VARIANT.Thumb)).toBe(
       'http://127.0.0.1:8899/dev/images/x/thumb',
     );
+  });
+});
+
+describe('the cloudflare store writes through the Images binding', () => {
+  it('uploads bytes and returns the id the binding assigned', async () => {
+    const fake = fakeImages();
+    const id = await cloudflare(fake.binding).put(new ArrayBuffer(1234), 'image/jpeg');
+
+    expect(id).toBe('generated-id');
+    expect(fake.uploaded).toEqual([{ bytes: 1234, id: undefined, signed: false }]);
+  });
+
+  it('never asks for signed URLs, since these are public site images', async () => {
+    const fake = fakeImages();
+    await cloudflare(fake.binding).put(new ArrayBuffer(8), 'image/png');
+    expect(fake.uploaded[0]!.signed).toBe(false);
+  });
+
+  it('passes an explicit id through when one is given', async () => {
+    const fake = fakeImages();
+    const id = await cloudflare(fake.binding).put(new ArrayBuffer(8), 'image/png', 'my-id');
+
+    expect(id).toBe('my-id');
+    expect(fake.uploaded[0]!.id).toBe('my-id');
+  });
+
+  it('deletes through the binding rather than an HTTP call', async () => {
+    const fake = fakeImages();
+    await cloudflare(fake.binding).delete('img-42');
+    expect(fake.deleted).toEqual(['img-42']);
+  });
+
+  it('reads nothing back, because delivery bypasses the Worker', async () => {
+    expect(await cloudflare().get()).toBeNull();
   });
 });
