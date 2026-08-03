@@ -38,6 +38,7 @@ import { createInvite, inviteStatus, revokeInvite } from '~/services/invites';
 import { replaceCast, replaceCrew } from '~/services/casting';
 import { updateShowImages } from '~/services/show-images';
 import { addGalleryImages, removeGalleryImage } from '~/services/gallery';
+import { GRADES, createMember, isGrade, reactivateMember } from '~/services/members';
 import {
   NEWS_CATEGORY_LABELS,
   createNewsPost,
@@ -786,14 +787,43 @@ adminRoutes.get('/admin/members', requirePermission('member', 'update'), async (
 
   const publicCount = roster.filter((m) => m.visibility === MEMBER_VISIBILITY.Full).length;
   const changed = c.req.query('changed');
+  const created = c.req.query('created');
+  const invited = c.req.query('invited');
+  const inviteError = c.req.query('inviteError');
 
   return c.render(
     <div class="space-y-6">
-      <h1 class="font-display text-2xl font-bold text-neutral-900">Members</h1>
+      <div class="flex items-center justify-between gap-4">
+        <h1 class="font-display text-2xl font-bold text-neutral-900">Members</h1>
+        {can(c.get('role')!, 'member', 'create') && (
+          <a
+            href="/admin/members/new"
+            class="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            Add member
+          </a>
+        )}
+      </div>
 
       {changed && (
         <p class="rounded-lg bg-green-50 text-green-800 text-sm px-4 py-3 ring-1 ring-green-200">
           Updated {changed} member{changed === '1' ? '' : 's'}.
+        </p>
+      )}
+
+      {created && (
+        <p class="rounded-lg bg-green-50 text-green-800 text-sm px-4 py-3 ring-1 ring-green-200">
+          Added {created}, listed as first name and last initial.
+          {invited === '1' && ' Their sign-in invitation is on its way.'}
+          {invited === 'unsent' &&
+            ' The invitation was created but the email could not be sent - resend it from Accounts.'}
+        </p>
+      )}
+
+      {inviteError && (
+        <p class="rounded-lg bg-amber-50 text-amber-900 text-sm px-4 py-3 ring-1 ring-amber-200">
+          {created} was added, but the invitation failed: {inviteError} You can invite them
+          from Accounts.
         </p>
       )}
 
@@ -872,6 +902,365 @@ adminRoutes.get('/admin/members', requirePermission('member', 'update'), async (
     { title: 'Members' },
   );
 });
+
+// ------------------------------------------------------- create a member
+
+interface MemberFormValues {
+  name: string;
+  grade: string;
+  graduationYear: string;
+  isOfficer: boolean;
+  officerTitle: string;
+  email: string;
+  role: string;
+}
+
+const EMPTY_MEMBER_FORM: MemberFormValues = {
+  name: '',
+  grade: 'Freshman',
+  graduationYear: '',
+  isOfficer: false,
+  officerTitle: '',
+  email: '',
+  role: APP_ROLE.Member,
+};
+
+/**
+ * The add-member form.
+ *
+ * Re-rendered with the submitted values when a name collides, so hitting a
+ * conflict never costs someone their typing.
+ */
+function MemberForm({
+  values,
+  canSetOfficer,
+  canInvite,
+  allowDuplicate = false,
+}: {
+  values: MemberFormValues;
+  canSetOfficer: boolean;
+  canInvite: boolean;
+  allowDuplicate?: boolean;
+}) {
+  const field =
+    'w-full px-4 py-2.5 rounded-lg border border-neutral-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none';
+  const key = allowDuplicate ? 'dup' : 'new';
+
+  return (
+    <form method="post" action="/admin/members/new" class="space-y-5">
+      {allowDuplicate && <input type="hidden" name="allowDuplicate" value="1" />}
+
+      <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 space-y-4">
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label for={`m-name-${key}`} class="block text-sm font-medium text-neutral-700 mb-1">
+              Full name
+            </label>
+            <input
+              type="text"
+              id={`m-name-${key}`}
+              name="name"
+              required
+              maxlength={120}
+              value={values.name}
+              class={field}
+            />
+          </div>
+
+          <div>
+            <label for={`m-grade-${key}`} class="block text-sm font-medium text-neutral-700 mb-1">
+              Grade
+            </label>
+            <select id={`m-grade-${key}`} name="grade" class={`${field} bg-white`}>
+              {GRADES.map((g) => (
+                <option value={g} selected={values.grade === g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label for={`m-year-${key}`} class="block text-sm font-medium text-neutral-700 mb-1">
+              Graduation year (optional)
+            </label>
+            <input
+              type="text"
+              id={`m-year-${key}`}
+              name="graduationYear"
+              inputmode="numeric"
+              placeholder="2027"
+              value={values.graduationYear}
+              class={field}
+            />
+          </div>
+        </div>
+
+        <p class="rounded-lg bg-neutral-50 ring-1 ring-neutral-200 px-4 py-3 text-sm text-neutral-700">
+          They will be listed as first name and last initial, with no photo and no
+          profile page, until they choose otherwise themselves.
+        </p>
+
+        {canSetOfficer && (
+          <div class="pt-2 border-t border-neutral-100 space-y-3">
+            <label class="flex items-center gap-2 text-sm text-neutral-700">
+              <input type="checkbox" name="isOfficer" value="1" checked={values.isOfficer} />
+              This member is a club officer
+            </label>
+            <div>
+              <label
+                for={`m-title-${key}`}
+                class="block text-sm font-medium text-neutral-700 mb-1"
+              >
+                Officer title
+              </label>
+              <input
+                type="text"
+                id={`m-title-${key}`}
+                name="officerTitle"
+                maxlength={60}
+                placeholder="President"
+                value={values.officerTitle}
+                class={field}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {canInvite && (
+        <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 space-y-4">
+          <div>
+            <h2 class="font-display font-semibold text-neutral-900">
+              Invite them to sign in
+            </h2>
+            <p class="text-sm text-neutral-600 mt-1">
+              Optional. Leave the email empty for someone who only needs to appear in a
+              program - most members never sign in at all.
+            </p>
+          </div>
+
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label
+                for={`m-email-${key}`}
+                class="block text-sm font-medium text-neutral-700 mb-1"
+              >
+                Email address
+              </label>
+              <input
+                type="email"
+                id={`m-email-${key}`}
+                name="email"
+                value={values.email}
+                class={field}
+              />
+              <p class="text-xs text-neutral-500 mt-1">
+                Must be the address they will actually sign in with.
+              </p>
+            </div>
+
+            <div>
+              <label
+                for={`m-role-${key}`}
+                class="block text-sm font-medium text-neutral-700 mb-1"
+              >
+                Role
+              </label>
+              <select id={`m-role-${key}`} name="role" class={`${field} bg-white`}>
+                <option value={APP_ROLE.Member} selected={values.role === APP_ROLE.Member}>
+                  Member - own profile only
+                </option>
+                <option value={APP_ROLE.Officer} selected={values.role === APP_ROLE.Officer}>
+                  Officer - news, cast lists, approvals
+                </option>
+                <option value={APP_ROLE.Staff} selected={values.role === APP_ROLE.Staff}>
+                  Staff - everything except accounts
+                </option>
+                <option value={APP_ROLE.Admin} selected={values.role === APP_ROLE.Admin}>
+                  Admin - everything
+                </option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div class="flex gap-3">
+        <button
+          type="submit"
+          class="px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
+        >
+          {allowDuplicate ? 'Add as a different person' : 'Add member'}
+        </button>
+        <a
+          href="/admin/members"
+          class="px-6 py-2.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-medium rounded-lg transition-colors"
+        >
+          Cancel
+        </a>
+      </div>
+    </form>
+  );
+}
+
+adminRoutes.get('/admin/members/new', requirePermission('member', 'create'), (c) =>
+  c.render(
+    <div class="max-w-2xl space-y-6">
+      <div>
+        <a href="/admin/members" class="text-sm text-primary-600 hover:text-primary-700">
+          &larr; All members
+        </a>
+        <h1 class="font-display text-2xl font-bold text-neutral-900 mt-2">Add a member</h1>
+      </div>
+
+      <MemberForm
+        values={EMPTY_MEMBER_FORM}
+        canSetOfficer={can(c.get('role')!, 'member', 'setOfficer')}
+        canInvite={can(c.get('role')!, 'account', 'invite')}
+      />
+    </div>,
+    { title: 'Add a member' },
+  ),
+);
+
+adminRoutes.post('/admin/members/new', requirePermission('member', 'create'), async (c) => {
+  const db = getDb(c.env.DB);
+  const actor = c.get('actor');
+  const role = c.get('role')!;
+  const canSetOfficer = can(role, 'member', 'setOfficer');
+  const canInvite = can(role, 'account', 'invite');
+
+  const form = await c.req.formData();
+  const values: MemberFormValues = {
+    name: String(form.get('name') ?? ''),
+    grade: String(form.get('grade') ?? 'Freshman'),
+    graduationYear: String(form.get('graduationYear') ?? '').trim(),
+    // Read only when the role may set them. Posting the fields by hand is not
+    // enough to make someone an officer.
+    isOfficer: canSetOfficer && Boolean(form.get('isOfficer')),
+    officerTitle: canSetOfficer ? String(form.get('officerTitle') ?? '').trim() : '',
+    email: canInvite ? String(form.get('email') ?? '').trim() : '',
+    role: String(form.get('role') ?? APP_ROLE.Member),
+  };
+
+  const year = Number.parseInt(values.graduationYear, 10);
+
+  const result = await createMember(
+    db,
+    actor,
+    {
+      name: values.name,
+      grade: isGrade(values.grade) ? values.grade : 'Freshman',
+      graduationYear: Number.isFinite(year) ? year : null,
+      isOfficer: values.isOfficer,
+      officerTitle: values.officerTitle.length > 0 ? values.officerTitle : null,
+    },
+    { allowDuplicateName: Boolean(form.get('allowDuplicate')) },
+  );
+
+  if (!result.ok && result.reason === 'invalid') {
+    return c.render(
+      <div class="max-w-2xl space-y-6">
+        <h1 class="font-display text-2xl font-bold text-neutral-900">Add a member</h1>
+        <p class="rounded-lg bg-red-50 text-red-800 text-sm px-4 py-3 ring-1 ring-red-200">
+          {result.error}
+        </p>
+        <MemberForm values={values} canSetOfficer={canSetOfficer} canInvite={canInvite} />
+      </div>,
+      { title: 'Add a member' },
+    );
+  }
+
+  if (!result.ok && result.reason === 'duplicate') {
+    return c.render(
+      <div class="max-w-2xl space-y-6">
+        <h1 class="font-display text-2xl font-bold text-neutral-900">
+          Someone by that name is already on the roster
+        </h1>
+
+        <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-6">
+          <p class="font-medium text-neutral-900">{result.existing.name}</p>
+          <p class="text-sm text-neutral-500">
+            {result.existing.grade}
+            {result.existing.isActive ? '' : ' - no longer active'}
+          </p>
+
+          <p class="text-sm text-neutral-600 mt-4">
+            If this is the same person, use the record they already have: their cast
+            credits and history are attached to it, and a second record splits them
+            across two ids.
+          </p>
+
+          <div class="flex flex-wrap gap-3 mt-4">
+            {!result.existing.isActive && (
+              <form method="post" action={`/admin/members/${result.existing.id}/reactivate`}>
+                <button
+                  type="submit"
+                  class="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  Same person - put them back on the roster
+                </button>
+              </form>
+            )}
+            <a
+              href="/admin/members"
+              class="px-5 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-sm font-medium rounded-lg transition-colors"
+            >
+              {result.existing.isActive ? 'Same person - never mind' : 'Cancel'}
+            </a>
+          </div>
+        </div>
+
+        <div>
+          <h2 class="font-display font-semibold text-neutral-900 mb-1">
+            Or is this a different student?
+          </h2>
+          <p class="text-sm text-neutral-600 mb-4">
+            Two students really can share a name. This one would be added as{' '}
+            <code>{result.suggestedId}</code>.
+          </p>
+          <MemberForm
+            values={values}
+            canSetOfficer={canSetOfficer}
+            canInvite={canInvite}
+            allowDuplicate
+          />
+        </div>
+      </div>,
+      { title: 'Name already used' },
+    );
+  }
+
+  if (!result.ok) return c.redirect('/admin/members', 302);
+
+  // The member is kept whatever happens to the invite. Discarding them on a
+  // send failure would mean retyping the roster entry to try again.
+  let notice = '';
+  if (canInvite && values.email.length > 0) {
+    const invite = await createInvite(db, actor, c.env.EMAIL, c.env.SITE_URL, {
+      email: values.email,
+      role: (values.role as AppRole) ?? APP_ROLE.Member,
+      memberId: result.id,
+    });
+    notice = invite.ok
+      ? invite.emailed
+        ? '&invited=1'
+        : '&invited=unsent'
+      : `&inviteError=${encodeURIComponent(invite.error)}`;
+  }
+
+  return c.redirect(`/admin/members?created=${encodeURIComponent(values.name)}${notice}`, 302);
+});
+
+adminRoutes.post(
+  '/admin/members/:id/reactivate',
+  requirePermission('member', 'update'),
+  async (c) => {
+    await reactivateMember(getDb(c.env.DB), c.get('actor'), c.req.param('id'));
+    return c.redirect('/admin/members', 302);
+  },
+);
 
 adminRoutes.post(
   '/admin/members/visibility',

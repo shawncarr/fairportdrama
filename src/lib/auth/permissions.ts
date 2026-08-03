@@ -11,7 +11,10 @@ export const STATEMENT = {
   show: ['create', 'update', 'delete'],
   cast: ['assign'],
   news: ['create', 'update', 'publish', 'delete'],
-  member: ['create', 'update', 'delete'],
+  // `setOfficer` is separate from `update` on purpose: officers may build the
+  // roster, but naming who holds a club office is not something a student
+  // should be able to do for themselves or a friend.
+  member: ['create', 'update', 'delete', 'setOfficer'],
   memberSelf: ['update', 'setVisibility'],
   memberEdit: ['approve'],
   sponsor: ['manage'],
@@ -38,7 +41,7 @@ const GRANTS: Record<AppRole, RoleGrants> = {
     show: ['create', 'update', 'delete'],
     cast: ['assign'],
     news: ['create', 'update', 'publish', 'delete'],
-    member: ['create', 'update', 'delete'],
+    member: ['create', 'update', 'delete', 'setOfficer'],
     memberSelf: ['update', 'setVisibility'],
     memberEdit: ['approve'],
     sponsor: ['manage'],
@@ -53,7 +56,7 @@ const GRANTS: Record<AppRole, RoleGrants> = {
     show: ['create', 'update', 'delete'],
     cast: ['assign'],
     news: ['create', 'update', 'publish', 'delete'],
-    member: ['create', 'update', 'delete'],
+    member: ['create', 'update', 'delete', 'setOfficer'],
     memberSelf: ['update', 'setVisibility'],
     memberEdit: ['approve'],
     sponsor: ['manage'],
