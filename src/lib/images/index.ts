@@ -20,9 +20,9 @@ export const PRODUCTION = 'production';
  * Images account - which meant a photo uploaded while testing the member form
  * landed in production storage.
  *
- * APP_ENV is a secret, so it is absent under `wrangler dev` unless .dev.vars
- * sets it, and development gets the local shim by default rather than by
- * remembering to opt out.
+ * APP_ENV comes from the wrangler environment: `development` at the top level
+ * that `wrangler dev` reads, `production` only inside `env.production`. So the
+ * shim is the default for local work rather than something to opt into.
  *
  * The hash is still required, because every delivery URL contains it. Without
  * one there is nothing to build a URL from, so the shim is used even in

@@ -6,7 +6,7 @@
     "dev": "npm run build:css && wrangler dev",
     "build:css": "tailwindcss -i ./src/styles/global.css -o ./public/static/global.css --minify",
     "build:css:watch": "tailwindcss -i ./src/styles/global.css -o ./public/static/global.css --watch",
-    "deploy": "npm run build:css && wrangler deploy",
+    "deploy": "npm run build:css && wrangler deploy --env production",
     "typecheck": "wrangler types && tsc --noEmit",
     "cf-typegen": "wrangler types",
     "db:generate": "drizzle-kit generate",
@@ -21,7 +21,8 @@
     "seed:apply": "wrangler d1 execute fairport-drama-db --remote --file seed/content.sql",
     "seed:verify": "node scripts/verify-seed.mjs",
     "images:upload": "node scripts/upload-images.mjs",
-    "images:local": "node scripts/load-local-images.mjs"
+    "images:local": "node scripts/load-local-images.mjs",
+    "secret": "wrangler secret put --env production"
   },
   "keywords": [],
   "author": "",

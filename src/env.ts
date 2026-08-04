@@ -9,17 +9,14 @@ export interface Bindings {
   EMAIL: SendEmail;
 
   /**
-   * `production` on the deployed Worker, absent everywhere else.
+   * Which wrangler environment this Worker is running as.
    *
-   * Set with `wrangler secret put` rather than as a var in wrangler.jsonc,
-   * which is what makes it safe: `wrangler dev` cannot read deployed secrets,
-   * so local development sees `undefined` and falls back to local behaviour
-   * without anyone having to remember a flag. A var would be inherited by
-   * `wrangler dev` and would need a .dev.vars override to avoid pointing local
-   * work at production resources.
+   * `production` only in the `env.production` block of wrangler.jsonc, which
+   * is what `wrangler deploy --env production` uses. The top-level config that
+   * `wrangler dev` reads sets `development`, so local work never reaches live
+   * services by default.
    *
-   * Not sensitive in itself - it is a deployment marker that happens to be
-   * carried as a secret for that absence-by-default property.
+   * Anything other than exactly `production` is treated as not deployed.
    */
   APP_ENV?: string;
 

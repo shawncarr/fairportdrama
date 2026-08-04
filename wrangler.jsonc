@@ -1,6 +1,16 @@
 {
   // Cloudflare Workers configuration for the Fairport Drama Club site.
   //
+  // The top level is the development environment, used by `wrangler dev`.
+  // Deploys go through `--env production`, which is the only place APP_ENV is
+  // `production` and therefore the only place the app reaches live services
+  // such as Cloudflare Images.
+  //
+  // Wrangler does not inherit `vars`, `d1_databases`, `kv_namespaces`, or
+  // `send_email` into a named environment, so the production block repeats
+  // them in full. That is verbose but explicit: what a deploy binds is
+  // readable in one place rather than assembled from two.
+  //
   // NOTE: this Worker deploys under its own name and workers.dev URL. The
   // fairportdrama.com custom domain stays on the existing `fairport-drama`
   // Worker until cutover.
@@ -21,8 +31,15 @@
     "enabled": true,
   },
 
-  // Same D1 instance as the current site. It holds live newsletter
-  // subscribers; new tables are added by migration, never recreated.
+  "images": {
+    "binding": "IMAGES",
+  },
+
+  // ------------------------------------------------------------- development
+  // What `wrangler dev` uses. The D1 and KV ids match production because there
+  // is only one of each, but local development simulates both through
+  // miniflare and never touches them unless a command is given `--remote`.
+
   "d1_databases": [
     {
       "binding": "DB",
@@ -39,10 +56,6 @@
       "id": "3bb81e427a1643f29656d56254f3483d",
     },
   ],
-
-  "images": {
-    "binding": "IMAGES",
-  },
 
   // Transactional email: contact form, invites, approval notices, and
   // newsletter opt-in confirmations.
@@ -63,25 +76,75 @@
   ],
 
   "vars": {
-    "SITE_URL": "https://fairportdrama.com",
-    // Appears in every public image URL, so a var rather than a secret.
-    // Required for delivery URLs, but it does not decide which store is used -
-    // APP_ENV does. It is committed here, so keying selection on it sent
-    // `wrangler dev` at the real Images account.
+    "APP_ENV": "development",
+    "SITE_URL": "http://localhost:8787",
+    // Appears in every public image URL, so a var rather than a secret. Set
+    // here as well as in production so a delivery URL built during local work
+    // is at least well formed - but APP_ENV, not this, decides whether the
+    // Cloudflare store is used at all.
     "CF_IMAGES_ACCOUNT_HASH": "WkmTv5FeGiLo5ACVeQNYPw",
   },
 
-  // Secrets, set via `wrangler secret put`:
-  //   APP_ENV                 - set to `production` on the deployed Worker
-  //                             only. Carried as a secret rather than a var
-  //                             so `wrangler dev`, which cannot read deployed
-  //                             secrets, sees it as absent and uses local
-  //                             resources by default instead of by opting out.
+  // -------------------------------------------------------------- production
+
+  "env": {
+    "production": {
+      "name": "fairport-drama-next",
+      "workers_dev": true,
+
+      "assets": {
+        "directory": "./public",
+        "binding": "ASSETS",
+      },
+
+      "observability": {
+        "enabled": true,
+      },
+
+      "images": {
+        "binding": "IMAGES",
+      },
+
+      "vars": {
+        "APP_ENV": "production",
+        "SITE_URL": "https://fairportdrama.com",
+        "CF_IMAGES_ACCOUNT_HASH": "WkmTv5FeGiLo5ACVeQNYPw",
+      },
+
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "fairport-drama-db",
+          "database_id": "901d34db-5887-4721-aa26-ca8473b1bfe8",
+          "migrations_dir": "drizzle",
+        },
+      ],
+
+      "kv_namespaces": [
+        {
+          "binding": "KV",
+          "id": "3bb81e427a1643f29656d56254f3483d",
+        },
+      ],
+
+      "send_email": [
+        {
+          "name": "EMAIL",
+          "allowed_sender_addresses": ["noreply@fairportdrama.com"],
+        },
+      ],
+    },
+  },
+
+  // Secrets, set with `wrangler secret put <NAME> --env production`:
   //   CONTACT_EMAIL           - contact form destination
   //   TURNSTILE_SECRET_KEY    - contact form spam check
   //   BETTER_AUTH_SECRET      - session signing
   //   GOOGLE_CLIENT_ID        - Google SSO
   //   GOOGLE_CLIENT_SECRET    - Google SSO
+  //
+  // Secrets are per environment. One set on the development environment is not
+  // visible to the production one, and vice versa.
   //
   // Cloudflare Images needs no secret at runtime: uploads go through the
   // IMAGES binding. CF_IMAGES_ACCOUNT_ID and CF_IMAGES_API_TOKEN are needed
