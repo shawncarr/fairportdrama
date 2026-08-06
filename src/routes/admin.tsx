@@ -1742,8 +1742,12 @@ adminRoutes.get('/admin/newsletter', requirePermission('account', 'invite'), asy
 
       <div class="rounded-lg bg-neutral-50 ring-1 ring-neutral-200 px-4 py-3 text-sm text-neutral-700">
         <strong>{counts.active}</strong> subscribed, {counts.total - counts.active}{' '}
-        unsubscribed. There is no way to send a newsletter from this site yet - these
-        addresses are collected but not yet mailed.
+        unsubscribed.
+        <span class="block mt-1">
+          This site collects addresses and does not send newsletters. Download the list
+          and send from a mailing service, which handles bulk delivery, bounces, and the
+          unsubscribe requirements that come with it.
+        </span>
       </div>
 
       <form method="get" action="/admin/newsletter" class="flex flex-wrap gap-3 items-end">

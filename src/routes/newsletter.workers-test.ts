@@ -115,7 +115,7 @@ describe('the newsletter admin page', () => {
 
     const body = await (await get('/admin/newsletter', cookie)).text();
     expect(body).toContain('a@example.com');
-    expect(body).toContain('not yet mailed');
+    expect(body).toContain('does not send newsletters');
   });
 
   it('is refused to staff, since it is personal data of the public', async () => {

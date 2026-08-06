@@ -35,6 +35,10 @@ export default defineConfig({
         'src/env.ts',
         'src/db/schema/**',
       ],
+      // Count every source file, not only the ones a test happens to import.
+      // Without this the denominator moves as tests are added, and adding a
+      // test that loads a new module can make the percentage fall.
+      all: true,
       reporter: ['text-summary', 'json'],
     },
     setupFiles: ['./src/test/apply-migrations.ts'],
