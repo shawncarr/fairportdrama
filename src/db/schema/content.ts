@@ -192,16 +192,6 @@ export const news = sqliteTable(
   (t) => [index('idx_news_published').on(t.isDraft, t.publishedAt)],
 );
 
-export const newsTags = sqliteTable(
-  'news_tags',
-  {
-    newsId: text('news_id')
-      .notNull()
-      .references(() => news.id, { onDelete: 'cascade' }),
-    tag: text('tag').notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.newsId, t.tag] }), index('idx_news_tags_tag').on(t.tag)],
-);
 
 export const SPONSOR_TIER = {
   Platinum: 'platinum',

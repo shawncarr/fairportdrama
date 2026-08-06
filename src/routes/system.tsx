@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '~/env';
+import { findByToken } from '~/services/newsletter';
 import { getDb, getIndexableMemberIds, getPastShows, getPublishedNews, getCurrentShow } from '~/db/queries';
 
 export const systemRoutes = new Hono<AppEnv>();
@@ -62,6 +63,84 @@ systemRoutes.get('/robots.txt', (c) => {
     { 'Content-Type': 'text/plain; charset=utf-8' },
   );
 });
+
+/**
+ * Unsubscribe confirmation.
+ *
+ * A GET renders this page and changes nothing; the POST it submits does the
+ * work. Mail clients and security scanners prefetch links, so a GET that
+ * unsubscribed on sight would remove people who never clicked.
+ */
+systemRoutes.get('/newsletter/unsubscribe', async (c) => {
+  const token = c.req.query('token') ?? '';
+  const subscriber = await findByToken(getDb(c.env.DB), token);
+
+  if (!subscriber || subscriber.unsubscribedAt) {
+    c.status(404);
+    return c.render(
+      <div class="mx-auto max-w-xl px-4 sm:px-6 lg:px-8 py-24 text-center">
+        <h1 class="font-display text-3xl font-bold text-neutral-900 mb-3">
+          That link is no longer valid
+        </h1>
+        <p class="text-neutral-600 mb-8">
+          It may already have been used. If you are still receiving emails you did not
+          ask for, please{' '}
+          <a href="/about/contact" class="text-primary-600 hover:text-primary-700">
+            contact us
+          </a>{' '}
+          and we will take you off the list.
+        </p>
+        <a href="/" class="text-primary-600 hover:text-primary-700">
+          Go home
+        </a>
+      </div>,
+      { title: 'Unsubscribe' },
+    );
+  }
+
+  return c.render(
+    <div class="mx-auto max-w-xl px-4 sm:px-6 lg:px-8 py-24 text-center">
+      <h1 class="font-display text-3xl font-bold text-neutral-900 mb-3">
+        Unsubscribe from our newsletter?
+      </h1>
+      <p class="text-neutral-600 mb-8">
+        We will stop sending updates to <strong>{subscriber.email}</strong>. You can
+        subscribe again at any time.
+      </p>
+      <form method="post" action="/api/newsletter/unsubscribe">
+        <input type="hidden" name="token" value={token} />
+        <button
+          type="submit"
+          class="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-lg transition-colors"
+        >
+          Yes, unsubscribe me
+        </button>
+      </form>
+      <a href="/" class="inline-block mt-6 text-sm text-neutral-500 hover:text-neutral-700">
+        No, keep me subscribed
+      </a>
+    </div>,
+    { title: 'Unsubscribe' },
+  );
+});
+
+systemRoutes.get('/newsletter/unsubscribed', (c) =>
+  c.render(
+    <div class="mx-auto max-w-xl px-4 sm:px-6 lg:px-8 py-24 text-center">
+      <h1 class="font-display text-3xl font-bold text-neutral-900 mb-3">
+        You have been unsubscribed
+      </h1>
+      <p class="text-neutral-600 mb-8">
+        We will not send you any more newsletters. Thank you for supporting the Drama
+        Club.
+      </p>
+      <a href="/" class="text-primary-600 hover:text-primary-700">
+        Go home
+      </a>
+    </div>,
+    { title: 'Unsubscribed' },
+  ),
+);
 
 systemRoutes.get('/disclaimer', (c) =>
   c.render(

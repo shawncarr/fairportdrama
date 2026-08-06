@@ -1,12 +1,10 @@
 import { Hono } from 'hono';
-import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppEnv } from '~/env';
 import { getDb } from '~/db/queries';
-import { newsletterSubscribers } from '~/db/schema/newsletter';
+import { subscribe, unsubscribeByToken } from '~/services/newsletter';
 import { emailShell, sendEmail } from '~/lib/email';
 import { escapeHtml } from '~/lib/html';
-import { generateId } from '~/lib/id';
 
 export const apiRoutes = new Hono<AppEnv>();
 
@@ -34,73 +32,37 @@ const SUBJECT_LABELS: Record<string, string> = {
   general: 'General Inquiry',
 };
 
-const normalize = (email: string) => email.trim().toLowerCase();
-
 // ---------------------------------------------------------------- newsletter
 
 apiRoutes.post('/api/newsletter/subscribe', async (c) => {
   const parsed = subscribeSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
-    return c.json(
-      { success: false, error: 'Please enter a valid email address.' },
-      400,
-    );
+    return c.json({ success: false, error: 'Please enter a valid email address.' }, 400);
   }
 
   const { email, name, source } = parsed.data;
-  const address = normalize(email);
-  const db = getDb(c.env.DB);
-  const now = new Date().toISOString();
+  const result = await subscribe(getDb(c.env.DB), c.get('actor'), { email, name, source });
 
-  const [existing] = await db
-    .select()
-    .from(newsletterSubscribers)
-    .where(eq(newsletterSubscribers.email, address))
-    .limit(1);
-
-  if (existing) {
-    // Resubscribing someone who previously opted out is a legitimate action,
-    // so it clears the unsubscribe rather than reporting a duplicate.
-    if (existing.unsubscribedAt) {
-      await db
-        .update(newsletterSubscribers)
-        .set({ unsubscribedAt: null, subscribedAt: now, updatedAt: now, source })
-        .where(eq(newsletterSubscribers.email, address));
-      return c.json({ success: true, message: 'Welcome back! You are subscribed again.' });
-    }
-
-    // Reporting success for an address already on the list avoids turning this
-    // endpoint into a way to test whether someone is subscribed.
-    return c.json({ success: true, message: 'You are already subscribed.' });
-  }
-
-  await db.insert(newsletterSubscribers).values({
-    email: address,
-    name: name ?? null,
-    subscribedAt: now,
-    confirmationToken: generateId(),
-    source,
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  return c.json({ success: true, message: 'Thanks for subscribing!' });
+  return c.json({ success: true, message: result.message });
 });
 
-apiRoutes.get('/api/newsletter/unsubscribe', async (c) => {
-  const email = c.req.query('email');
-  if (!email) return c.json({ success: false, error: 'Missing email.' }, 400);
+/**
+ * Unsubscribe is a POST, and keyed on a token rather than an email address.
+ *
+ * The previous version was `GET /api/newsletter/unsubscribe?email=...`, which
+ * meant anyone could unsubscribe anyone by guessing an address, and any mail
+ * client or security scanner that prefetches links would silently unsubscribe
+ * the recipient. The GET below only renders a confirmation page.
+ */
+apiRoutes.post('/api/newsletter/unsubscribe', async (c) => {
+  const form = await c.req.parseBody().catch(() => ({}) as Record<string, unknown>);
+  const token = String((form as Record<string, unknown>).token ?? '');
 
-  const db = getDb(c.env.DB);
-  const now = new Date().toISOString();
+  await unsubscribeByToken(getDb(c.env.DB), c.get('actor'), token);
 
-  await db
-    .update(newsletterSubscribers)
-    .set({ unsubscribedAt: now, updatedAt: now })
-    .where(eq(newsletterSubscribers.email, normalize(email)));
-
-  // Always reports success, whether or not the address was on the list.
-  return c.json({ success: true, message: 'You have been unsubscribed.' });
+  // Reports success either way, so a wrong or spent token cannot be used to
+  // probe which tokens are real.
+  return c.redirect('/newsletter/unsubscribed', 302);
 });
 
 // ---------------------------------------------------------------- contact

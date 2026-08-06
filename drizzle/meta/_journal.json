@@ -15,6 +15,13 @@
       "when": 1785444837167,
       "tag": "0001_add_auth_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786030528606,
+      "tag": "0002_drop_unused_news_tags",
+      "breakpoints": true
     }
   ]
 }

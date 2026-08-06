@@ -13,6 +13,7 @@ export const AUDIT_ENTITY_KIND = {
   SpiritWear: 'spirit_wear',
   User: 'user',
   Invite: 'invite',
+  NewsletterSubscriber: 'newsletter_subscriber',
   PendingEdit: 'pending_edit',
 } as const;
 
@@ -65,6 +66,11 @@ export const AUDIT_ACTION = {
   AccountMemberLinked: 'Account.MemberLinked',
   AccountMemberUnlinked: 'Account.MemberUnlinked',
 
+  // Newsletter. Public, unauthenticated mutations, so the actor is `system`
+  // and the IP is the only attribution available.
+  NewsletterSubscribed: 'Newsletter.Subscribed',
+  NewsletterUnsubscribed: 'Newsletter.Unsubscribed',
+
   // Auth
   AuthSignedIn: 'Auth.SignedIn',
   AuthSignedOut: 'Auth.SignedOut',
@@ -77,10 +83,3 @@ export interface RelatedEntity {
   kind: AuditEntityKind;
   id: string;
 }
-
-/**
- * Marker substituted for values that must not be persisted into audit rows.
- * Rendering walks nested structures for this, so a redacted value cannot leak
- * verbatim at any depth.
- */
-export const AUDIT_REDACTION_MARKER = '[redacted]';

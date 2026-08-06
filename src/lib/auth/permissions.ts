@@ -122,9 +122,6 @@ export const SELF_EDIT_FIELDS = {
   requiresApproval: ['bio', 'photoImageId', 'instagram'],
 } as const;
 
-/** Roster data. Not self-editable at any visibility level. */
-export const ROSTER_FIELDS = ['name', 'grade', 'graduationYear'] as const;
-
 export type SelfEditableField =
   | (typeof SELF_EDIT_FIELDS.immediate)[number]
   | (typeof SELF_EDIT_FIELDS.requiresApproval)[number];

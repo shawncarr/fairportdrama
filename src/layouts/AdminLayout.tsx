@@ -38,6 +38,11 @@ const NAV: NavItem[] = [
     label: 'Spirit Wear',
     visible: (r) => can(r, 'spiritwear', 'manage'),
   },
+  {
+    href: '/admin/newsletter',
+    label: 'Newsletter',
+    visible: (r) => can(r, 'account', 'invite'),
+  },
   { href: '/admin/audit', label: 'Activity', visible: (r) => can(r, 'audit', 'readOwn') },
 ];
 

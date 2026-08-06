@@ -23,6 +23,20 @@ export default defineConfig({
   ],
   test: {
     include: ['src/**/*.workers-test.ts'],
+    coverage: {
+      // v8 coverage needs the V8 inspector Session API, which workerd does not
+      // implement. Istanbul instruments at transform time instead.
+      provider: 'istanbul',
+      include: ['src/**/*.ts', 'src/**/*.tsx'],
+      exclude: [
+        'src/**/*.test.ts',
+        'src/**/*.workers-test.ts',
+        'src/test/**',
+        'src/env.ts',
+        'src/db/schema/**',
+      ],
+      reporter: ['text-summary', 'json'],
+    },
     setupFiles: ['./src/test/apply-migrations.ts'],
   },
 });

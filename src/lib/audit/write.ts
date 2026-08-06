@@ -82,17 +82,3 @@ export async function writeWithAudit(
     ...BatchItem<'sqlite'>[],
   ]);
 }
-
-/**
- * For events with no accompanying data change - a denied sign-in, a read that
- * must be recorded. Not the common path; prefer writeWithAudit so the record
- * cannot drift from the change.
- */
-export async function writeAuditOnly(
-  db: DB,
-  actor: Actor,
-  event: AuditEventInput,
-  now: Date = new Date(),
-): Promise<void> {
-  await db.insert(auditEvents).values(buildAuditRow(actor, event, now));
-}

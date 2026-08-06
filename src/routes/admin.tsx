@@ -36,6 +36,12 @@ import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import { writeWithAudit } from '~/lib/audit/write';
 import { createInvite, inviteStatus, revokeInvite } from '~/services/invites';
 import { assignRole, linkMember, revokeAccess } from '~/services/accounts';
+import {
+  countSubscribers,
+  listSubscribers,
+  toCsv,
+  unsubscribeByEmail,
+} from '~/services/newsletter';
 import { replaceCast, replaceCrew } from '~/services/casting';
 import { updateShowImages } from '~/services/show-images';
 import {
@@ -1699,6 +1705,184 @@ adminRoutes.post(
   async (c) => {
     await removeMemberInformation(getDb(c.env.DB), c.get('actor'), c.req.param('id'));
     return c.redirect(`/admin/members/${c.req.param('id')}?saved=removed`, 302);
+  },
+);
+
+// ------------------------------------------------------------- newsletter
+
+adminRoutes.get('/admin/newsletter', requirePermission('account', 'invite'), async (c) => {
+  const db = getDb(c.env.DB);
+  const search = c.req.query('q') ?? '';
+  const status = (c.req.query('status') ?? 'active') as 'active' | 'unsubscribed' | 'all';
+
+  const [rows, counts] = await Promise.all([
+    listSubscribers(db, { search, status }),
+    countSubscribers(db),
+  ]);
+
+  const removed = c.req.query('removed');
+
+  return c.render(
+    <div class="space-y-6">
+      <div class="flex items-center justify-between gap-4">
+        <h1 class="font-display text-2xl font-bold text-neutral-900">Newsletter</h1>
+        <a
+          href={`/admin/newsletter/export?status=${status}`}
+          class="px-5 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-sm font-medium rounded-lg transition-colors"
+        >
+          Download CSV
+        </a>
+      </div>
+
+      {removed && (
+        <p class="rounded-lg bg-green-50 text-green-800 text-sm px-4 py-3 ring-1 ring-green-200">
+          {removed} has been unsubscribed.
+        </p>
+      )}
+
+      <div class="rounded-lg bg-neutral-50 ring-1 ring-neutral-200 px-4 py-3 text-sm text-neutral-700">
+        <strong>{counts.active}</strong> subscribed, {counts.total - counts.active}{' '}
+        unsubscribed. There is no way to send a newsletter from this site yet - these
+        addresses are collected but not yet mailed.
+      </div>
+
+      <form method="get" action="/admin/newsletter" class="flex flex-wrap gap-3 items-end">
+        <div class="flex-1 min-w-48">
+          <label for="q" class="block text-xs font-medium text-neutral-600 mb-1">
+            Search
+          </label>
+          <input
+            type="text"
+            id="q"
+            name="q"
+            value={search}
+            placeholder="name or email"
+            class="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm"
+          />
+        </div>
+        <div>
+          <label for="status" class="block text-xs font-medium text-neutral-600 mb-1">
+            Show
+          </label>
+          <select
+            id="status"
+            name="status"
+            class="px-3 py-2 rounded-lg border border-neutral-300 bg-white text-sm"
+          >
+            <option value="active" selected={status === 'active'}>
+              Subscribed
+            </option>
+            <option value="unsubscribed" selected={status === 'unsubscribed'}>
+              Unsubscribed
+            </option>
+            <option value="all" selected={status === 'all'}>
+              Everyone
+            </option>
+          </select>
+        </div>
+        <button
+          type="submit"
+          class="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-sm font-medium rounded-lg transition-colors"
+        >
+          Filter
+        </button>
+      </form>
+
+      {rows.length === 0 ? (
+        <p class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 text-neutral-600">
+          No subscribers match.
+        </p>
+      ) : (
+        <div class="bg-white rounded-xl ring-1 ring-neutral-200 overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-neutral-50 text-left">
+              <tr>
+                <th class="px-4 py-3 font-medium text-neutral-600">Email</th>
+                <th class="px-4 py-3 font-medium text-neutral-600">Name</th>
+                <th class="px-4 py-3 font-medium text-neutral-600">Subscribed</th>
+                <th class="px-4 py-3 font-medium text-neutral-600">Source</th>
+                <th class="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-neutral-100">
+              {rows.map((r) => (
+                <tr class={r.unsubscribedAt ? 'opacity-50' : ''}>
+                  <td class="px-4 py-2 text-neutral-900">{r.email}</td>
+                  <td class="px-4 py-2 text-neutral-600">{r.name ?? '—'}</td>
+                  <td class="px-4 py-2 text-neutral-500">{r.subscribedAt.slice(0, 10)}</td>
+                  <td class="px-4 py-2 text-neutral-500">{r.source ?? '—'}</td>
+                  <td class="px-4 py-2 text-right">
+                    {r.unsubscribedAt ? (
+                      <span class="text-xs text-neutral-400">
+                        left {r.unsubscribedAt.slice(0, 10)}
+                      </span>
+                    ) : (
+                      <form
+                        method="post"
+                        action="/admin/newsletter/unsubscribe"
+                        onsubmit={`return confirm('Unsubscribe ${r.email.replace(/'/g, "\\'")}?')`}
+                      >
+                        <input type="hidden" name="email" value={r.email} />
+                        <button
+                          type="submit"
+                          class="px-3 py-1 text-xs text-red-700 hover:bg-red-50 rounded transition-colors"
+                        >
+                          Unsubscribe
+                        </button>
+                      </form>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p class="text-xs text-neutral-500">
+        Showing at most 500. Someone who asks to be removed can be unsubscribed here; the
+        row is kept so the same address is not silently re-added later.
+      </p>
+    </div>,
+    { title: 'Newsletter' },
+  );
+});
+
+adminRoutes.get(
+  '/admin/newsletter/export',
+  requirePermission('account', 'invite'),
+  async (c) => {
+    const status = (c.req.query('status') ?? 'active') as 'active' | 'unsubscribed' | 'all';
+    const rows = await listSubscribers(getDb(c.env.DB), { status });
+
+    const csv = toCsv(
+      rows.map((r) => ({
+        email: r.email,
+        name: r.name ?? '',
+        subscribed_at: r.subscribedAt,
+        unsubscribed_at: r.unsubscribedAt ?? '',
+        source: r.source ?? '',
+      })),
+      ['email', 'name', 'subscribed_at', 'unsubscribed_at', 'source'],
+    );
+
+    return c.body(csv, 200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="newsletter-${status}.csv"`,
+      'Cache-Control': 'no-store',
+    });
+  },
+);
+
+adminRoutes.post(
+  '/admin/newsletter/unsubscribe',
+  requirePermission('account', 'invite'),
+  async (c) => {
+    const form = await c.req.formData();
+    const email = String(form.get('email') ?? '');
+
+    await unsubscribeByEmail(getDb(c.env.DB), c.get('actor'), email);
+    return c.redirect(`/admin/newsletter?removed=${encodeURIComponent(email)}`, 302);
   },
 );
 

@@ -20,9 +20,14 @@ const app = new Hono<AppEnv>();
 // are in the middle of establishing.
 app.all('/api/auth/*', (c) => createAuth(c.env).handler(c.req.raw));
 
+app.use('*', actorMiddleware);
+
+// After the actor middleware, not before. These endpoints are public and
+// unauthenticated, but newsletter subscribe and unsubscribe are mutations, and
+// every mutation is audited - which needs an actor. Mounted earlier they got
+// `undefined` and the audit write threw.
 app.route('/', apiRoutes);
 
-app.use('*', actorMiddleware);
 app.route('/', adminRoutes);
 app.route('/', adminCatalogRoutes);
 

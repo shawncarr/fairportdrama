@@ -24,3 +24,4 @@ worker-configuration.d.ts
 # generated migration artifacts
 seed/content.sql
 seed/image-manifest.json
+coverage/
