@@ -11,6 +11,9 @@ import { user } from '~/db/schema/auth';
 import { generateId } from '~/lib/id';
 import { emailShell, sendEmail } from '~/lib/email';
 import { escapeHtml } from '~/lib/html';
+import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
+import { AUDIT_ACTOR_KIND, systemActor } from '~/lib/audit/actor';
+import { writeAuditOnly } from '~/lib/audit/write';
 import {
   GATE_DENIAL_MESSAGE,
   decideInviteGate,
@@ -48,7 +51,19 @@ export function createAuth(env: Bindings) {
           //
           // Skipping silently is deliberate: the endpoint still reports success
           // so it cannot be used to enumerate who has an account or an invite.
-          if (!(await mayReceiveSignInLink(db, email))) return;
+          if (!(await mayReceiveSignInLink(db, email))) {
+            // The send is skipped silently so the page cannot be used to
+            // discover who has access, but silence to the visitor is not the
+            // same as silence in the log: this is the denial that happens most
+            // often, and it is the only record that it happened at all.
+            await writeAuditOnly(db, systemActor(), {
+              action: AUDIT_ACTION.AuthSignInDenied,
+              targetKind: AUDIT_ENTITY_KIND.User,
+              targetId: email,
+              payload: { email, method: 'magic-link' },
+            });
+            return;
+          }
 
           await sendEmail(env.EMAIL, {
             to: email,
@@ -110,6 +125,19 @@ export function createAuth(env: Bindings) {
             const decision = decideInviteGate(rows as OpenInvite[]);
 
             if (!decision.allow) {
+              // Recorded before throwing. Nothing else marks the attempt -
+              // no row is written by design - so without this a run of
+              // rejected sign-ins for one address leaves no trace at all.
+              await writeAuditOnly(db, systemActor(), {
+                action: AUDIT_ACTION.AuthSignInDenied,
+                targetKind: AUDIT_ENTITY_KIND.User,
+                targetId: email,
+                // Reached by social sign-in, where the account authenticates
+                // with Google first and only then meets the gate. The magic
+                // link path is refused earlier, before any email goes out.
+                payload: { email, reason: decision.reason, method: 'social' },
+              });
+
               throw new APIError('FORBIDDEN', {
                 message: GATE_DENIAL_MESSAGE[decision.reason],
               });
@@ -146,6 +174,28 @@ export function createAuth(env: Bindings) {
                   isNull(invites.revokedAt),
                 ),
               );
+
+            // Account creation is the most consequential mutation here - it is
+            // how somebody gains access - and Better Auth writes the row, so
+            // writeWithAudit has nothing to batch against. The actor is the
+            // new account itself: nobody else was present.
+            const role = (user as { role?: string | null }).role ?? null;
+            await writeAuditOnly(
+              db,
+              {
+                kind: AUDIT_ACTOR_KIND.User,
+                id: user.id,
+                label: user.email,
+                ip: null,
+                userAgent: null,
+              },
+              {
+                action: AUDIT_ACTION.AccountInviteAccepted,
+                targetKind: AUDIT_ENTITY_KIND.User,
+                targetId: user.id,
+                payload: { email, role },
+              },
+            );
           },
         },
       },

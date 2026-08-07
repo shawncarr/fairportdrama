@@ -82,3 +82,23 @@ export async function writeWithAudit(
     ...BatchItem<'sqlite'>[],
   ]);
 }
+
+/**
+ * Records an event that has no accompanying row change.
+ *
+ * Used where the thing worth recording is that something was refused, or that
+ * a change was made by machinery outside the request path - a denied sign-in
+ * writes nothing to the database by design, and an invite accepted during
+ * account creation is written by Better Auth rather than by us.
+ *
+ * Prefer writeWithAudit everywhere else, so the record cannot drift from the
+ * change it describes.
+ */
+export async function writeAuditOnly(
+  db: DB,
+  actor: Actor,
+  event: AuditEventInput,
+  now: Date = new Date(),
+): Promise<void> {
+  await db.insert(auditEvents).values(buildAuditRow(actor, event, now));
+}

@@ -30,7 +30,6 @@ export const AUDIT_ACTION = {
   // Members
   MemberCreated: 'Member.Created',
   MemberUpdated: 'Member.Updated',
-  MemberDeleted: 'Member.Deleted',
   MemberVisibilityChanged: 'Member.VisibilityChanged',
   /** A removal request honoured: photo, bio, and surname taken down. */
   MemberInformationRemoved: 'Member.InformationRemoved',
@@ -71,9 +70,9 @@ export const AUDIT_ACTION = {
   NewsletterSubscribed: 'Newsletter.Subscribed',
   NewsletterUnsubscribed: 'Newsletter.Unsubscribed',
 
-  // Auth
-  AuthSignedIn: 'Auth.SignedIn',
-  AuthSignedOut: 'Auth.SignedOut',
+  // Auth. Only the refusal is recorded: a successful sign-in changes nothing
+  // and is already in Better Auth's session table, whereas a denial writes no
+  // row at all and would otherwise leave no trace.
   AuthSignInDenied: 'Auth.SignInDenied',
 } as const;
 

@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { drizzle } from 'drizzle-orm/d1';
 import { eq } from 'drizzle-orm';
 import * as schema from '~/db/schema';
-import { invites, APP_ROLE } from '~/db/schema/governance';
+import { auditEvents, invites, APP_ROLE } from '~/db/schema/governance';
+import { AUDIT_ACTION } from '~/lib/audit/constants';
 import { user, verification } from '~/db/schema/auth';
 import { generateId } from '~/lib/id';
 import { createAuth } from './index';
@@ -74,6 +75,7 @@ const usersFor = async (email: string) =>
     .where(eq(user.email, email.toLowerCase()));
 
 beforeEach(async () => {
+  await env.DB.exec('DELETE FROM audit_events');
   await env.DB.exec('DELETE FROM invites');
   await env.DB.exec('DELETE FROM session');
   await env.DB.exec('DELETE FROM account');
@@ -203,5 +205,83 @@ describe('schema compatibility', () => {
       new Request('https://fairportdrama.com/api/auth/ok'),
     );
     expect(response.status).toBeLessThan(500);
+  });
+});
+
+describe('the account lifecycle is recorded', () => {
+  /**
+   * Account creation is how somebody gains access, and a refused attempt
+   * writes no row at all - so without these the two most security-relevant
+   * events in the system leave no trace. Both actions were declared in the
+   * audit vocabulary from the start and neither was ever emitted.
+   */
+  const audits = () => db().select().from(auditEvents);
+
+  it('records the acceptance, with the role that was granted', async () => {
+    await seedInvite({ email: 'invited@example.com', role: APP_ROLE.Admin });
+    await completeSignIn('invited@example.com');
+
+    const rows = (await audits()).filter(
+      (r) => r.action === AUDIT_ACTION.AccountInviteAccepted,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.payload).toMatchObject({
+      email: 'invited@example.com',
+      role: APP_ROLE.Admin,
+    });
+
+    // Targets the account, so the row resolves against the user table.
+    const [account] = await db()
+      .select()
+      .from(user)
+      .where(eq(user.email, 'invited@example.com'));
+    expect(rows[0]!.targetId).toBe(account!.id);
+  });
+
+  it('records a refused sign-in for an address nobody invited', async () => {
+    const auth = createAuth(env as never);
+    await auth.api
+      .signInMagicLink({
+        body: { email: 'stranger@example.com', callbackURL: '/admin' },
+        headers: new Headers(),
+      })
+      .catch(() => undefined);
+
+    const rows = (await audits()).filter((r) => r.action === AUDIT_ACTION.AuthSignInDenied);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.targetId).toBe('stranger@example.com');
+    expect(rows[0]!.payload).toMatchObject({ method: 'magic-link' });
+    // Nothing was created, which is the point of the gate.
+    expect(await db().select().from(user)).toHaveLength(0);
+  });
+
+  it('records a refusal for a revoked invite too', async () => {
+    await seedInvite({ email: 'revoked@example.com', revokedAt: new Date().toISOString() });
+
+    const auth = createAuth(env as never);
+    await auth.api
+      .signInMagicLink({
+        body: { email: 'revoked@example.com', callbackURL: '/admin' },
+        headers: new Headers(),
+      })
+      .catch(() => undefined);
+
+    const rows = (await audits()).filter((r) => r.action === AUDIT_ACTION.AuthSignInDenied);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.targetId).toBe('revoked@example.com');
+  });
+
+  it('records nothing for an address that is entitled', async () => {
+    await seedInvite({ email: 'invited@example.com' });
+
+    const auth = createAuth(env as never);
+    await auth.api
+      .signInMagicLink({
+        body: { email: 'invited@example.com', callbackURL: '/admin' },
+        headers: new Headers(),
+      })
+      .catch(() => undefined);
+
+    expect((await audits()).filter((r) => r.action === AUDIT_ACTION.AuthSignInDenied)).toHaveLength(0);
   });
 });

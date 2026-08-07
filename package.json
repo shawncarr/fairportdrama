@@ -22,7 +22,8 @@
     "seed:verify": "node scripts/verify-seed.mjs",
     "images:upload": "node scripts/upload-images.mjs",
     "images:local": "node scripts/load-local-images.mjs",
-    "secret": "wrangler secret put --env production"
+    "secret": "wrangler secret put --env production",
+    "bootstrap:admin": "node scripts/bootstrap-admin.mjs"
   },
   "keywords": [],
   "author": "",
