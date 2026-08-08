@@ -34,6 +34,8 @@ systemRoutes.get('/sitemap.xml', async (c) => {
     '/about/sponsors',
     '/about/contact',
     '/disclaimer',
+    '/privacy',
+    '/terms',
   ];
 
   const urls = [
@@ -142,6 +144,250 @@ systemRoutes.get('/newsletter/unsubscribed', (c) =>
   ),
 );
 
+/**
+ * Privacy policy and terms.
+ *
+ * Google requires both to publish an OAuth consent screen, but the reason to
+ * get them right is that this site publishes information about minors. Every
+ * statement below is checked against what the code does - the data listed is
+ * the data the schema holds, the third parties listed are the bindings in
+ * wrangler.jsonc, and the retention section says plainly that audit rows are
+ * kept indefinitely, because no purge has been built.
+ */
+
+const LEGAL_UPDATED = 'August 8, 2026';
+
+const Section = ({ title, children }: { title: string; children?: unknown }) => (
+  <section>
+    <h2 class="font-display text-xl font-semibold text-neutral-900 mt-8 mb-2">{title}</h2>
+    {children}
+  </section>
+);
+
+systemRoutes.get('/privacy', (c) =>
+  c.render(
+    <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-16">
+      <h1 class="font-display text-4xl font-bold text-neutral-900 mb-2">Privacy Policy</h1>
+      <p class="text-sm text-neutral-500 mb-8">Last updated {LEGAL_UPDATED}</p>
+
+      <div class="space-y-4 text-neutral-600">
+        <p>
+          This site is run by the Fairport Drama Club Boosters, a volunteer parent
+          organization supporting student theater at Fairport High School. We are not the
+          Fairport Central School District. This policy explains what we collect, why, and
+          how to have it removed.
+        </p>
+
+        <Section title="Information about students">
+          <p>
+            Students who have appeared in one of our productions are listed by name, with a
+            photograph and biography where we have them, as they appeared in the printed
+            program. Every other student is listed by first name and last initial only,
+            with no photograph, no biography, and no page of their own. Any student may
+            change this themselves at any time, in either direction, and choosing to show
+            less takes effect immediately. The{' '}
+            <a href="/disclaimer" class="text-primary-600 hover:text-primary-700">
+              disclaimer
+            </a>{' '}
+            describes this in more detail.
+          </p>
+          <p class="mt-3">
+            A student or parent may ask a board member to take a student's information
+            down. We remove the photograph, biography, and surname. Where a student
+            appeared in a past production, their first name and last initial remain against
+            the role they played, because that is the record of who performed in the show.
+            If you would like that removed as well, ask and we will talk it through.
+          </p>
+        </Section>
+
+        <Section title="What we collect">
+          <ul class="space-y-3 mt-2">
+            <li>
+              <strong class="text-neutral-800">Newsletter sign-ups.</strong> Your email
+              address, optionally a name, and when you subscribed. We do not currently send
+              a newsletter from this site at all; these addresses are collected and stored,
+              nothing more. Every message we eventually send will carry an unsubscribe link,
+              and you can ask us to remove you at any time.
+            </li>
+            <li>
+              <strong class="text-neutral-800">Contact form messages.</strong> Your name,
+              email address, chosen subject, and message. These are emailed to the Boosters
+              board and are not stored on this site.
+            </li>
+            <li>
+              <strong class="text-neutral-800">Accounts.</strong> Only for the small number
+              of people who edit the site. We store an email address, a display name, the
+              permissions granted, and sign-in sessions. Accounts are by invitation only.
+            </li>
+            <li>
+              <strong class="text-neutral-800">A record of changes.</strong> When somebody
+              with an account changes something, we record what changed, when, who did it,
+              and the IP address and browser used. This exists so that changes to student
+              information can be attributed accurately, particularly where school devices
+              and logins are shared.
+            </li>
+          </ul>
+          <p class="mt-4">
+            We do not use analytics, advertising, or third-party tracking of any kind. There
+            are no cookies on this site except a single sign-in cookie, and only for people
+            who have an account and are signed in.
+          </p>
+        </Section>
+
+        <Section title="Who else sees it">
+          <p>
+            <strong class="text-neutral-800">Cloudflare</strong> hosts this site and stores
+            its database, images, and email delivery. Everything above passes through their
+            systems.{' '}
+            <strong class="text-neutral-800">Google</strong> sees your email address and
+            basic profile only if you choose to sign in with a Google account; we request
+            nothing beyond your name and email, and no access to any other Google service.
+          </p>
+          <p class="mt-3">
+            We do not sell information, share it for advertising, or give it to anyone else,
+            including the school district.
+          </p>
+        </Section>
+
+        <Section title="How long we keep it">
+          <p>
+            Newsletter addresses are kept until you unsubscribe or ask to be removed. When
+            you unsubscribe we keep the row so the address is not accidentally added again,
+            and we stop using it.
+          </p>
+          <p class="mt-3">
+            The record of changes described above is currently kept indefinitely. We have
+            not yet built a routine that deletes old entries. We are telling you that
+            plainly rather than implying a schedule we do not have; if you would like your
+            entries removed sooner, ask.
+          </p>
+        </Section>
+
+        <Section title="Children">
+          <p>
+            This site is about a high school drama club, and most students involved are
+            between fourteen and eighteen. It is not directed at children under thirteen and
+            we do not knowingly collect information from them. A parent or guardian may ask
+            us to remove any information about their child, and we will.
+          </p>
+        </Section>
+
+        <Section title="Asking us to remove something">
+          <p>
+            Write to us through the{' '}
+            <a href="/about/contact" class="text-primary-600 hover:text-primary-700">
+              contact form
+            </a>
+            . A real person on the Boosters board reads it. You do not need to give a reason.
+          </p>
+        </Section>
+
+        <Section title="Changes">
+          <p>
+            If we change this policy we will update the date at the top. Material changes to
+            how student information is published will be raised with the club rather than
+            made quietly.
+          </p>
+        </Section>
+      </div>
+    </div>,
+    {
+      title: 'Privacy Policy',
+      description: 'What the Fairport Drama Club Boosters collect, why, and how to have it removed.',
+    },
+  ),
+);
+
+systemRoutes.get('/terms', (c) =>
+  c.render(
+    <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-16">
+      <h1 class="font-display text-4xl font-bold text-neutral-900 mb-2">Terms of Use</h1>
+      <p class="text-sm text-neutral-500 mb-8">Last updated {LEGAL_UPDATED}</p>
+
+      <div class="space-y-4 text-neutral-600">
+        <p>
+          This site is operated by the Fairport Drama Club Boosters, a volunteer parent
+          organization supporting student theater at Fairport High School. By using it you
+          agree to what follows. It is written to be read, not to be impressive.
+        </p>
+
+        <Section title="What this site is">
+          <p>
+            An information site about the club: our productions, the students in them, news,
+            and how to support us. Nothing is sold here. Tickets are sold through a separate
+            service that we link to, and spirit wear is listed so you know what exists, not
+            purchased on this site.
+          </p>
+        </Section>
+
+        <Section title="Accounts">
+          <p>
+            Accounts exist only for club members, officers, staff, and board members who
+            maintain the site, and are created by invitation. There is no public sign-up. Do
+            not share your sign-in link or let somebody else use your account: every change
+            is recorded against whoever is signed in, and that record is how we sort out
+            questions later.
+          </p>
+          <p class="mt-3">
+            We may remove access at any time, usually because somebody has left the club.
+            Removing access does not remove a student's profile or their credit in a past
+            production.
+          </p>
+        </Section>
+
+        <Section title="What you post">
+          <p>
+            If you write a biography or upload a photograph, you are confirming that it is
+            yours to share and that anybody appearing in a photograph is willing to appear
+            on a public website. Keep it about theater and about the club.
+          </p>
+          <p class="mt-3">
+            Student biographies and photographs are reviewed before they appear publicly.
+            Officers and board members may edit or remove anything on the site, and will
+            remove content that is inappropriate, that identifies someone who does not want
+            to be identified, or that somebody has asked us to take down.
+          </p>
+        </Section>
+
+        <Section title="Using the site">
+          <p>
+            Do not try to break into it, scrape it, overload it, or use it to contact
+            students. Do not copy photographs of students from this site and republish them
+            elsewhere. Show titles, scripts, logos, and production artwork belong to their
+            respective rights holders and appear here to describe our productions.
+          </p>
+        </Section>
+
+        <Section title="No warranty">
+          <p>
+            We are volunteers, and we make no promises that this site is always available or
+            always correct. Performance dates, ticket links, and cast lists change. Check
+            with us if something matters.
+          </p>
+        </Section>
+
+        <Section title="Privacy and questions">
+          <p>
+            How we handle information is set out in our{' '}
+            <a href="/privacy" class="text-primary-600 hover:text-primary-700">
+              privacy policy
+            </a>
+            . For anything else, use the{' '}
+            <a href="/about/contact" class="text-primary-600 hover:text-primary-700">
+              contact form
+            </a>
+            .
+          </p>
+        </Section>
+      </div>
+    </div>,
+    {
+      title: 'Terms of Use',
+      description: 'Terms for using the Fairport High School Drama Club website.',
+    },
+  ),
+);
+
 systemRoutes.get('/disclaimer', (c) =>
   c.render(
     <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-16">
@@ -195,7 +441,11 @@ systemRoutes.get('/disclaimer', (c) =>
             that changes to student information can be attributed accurately, particularly
             where devices and logins are shared. These records are visible to Boosters
             board members, and any account holder can view the record of changes they made
-            and of changes made to their own profile.
+            and of changes made to their own profile. Our{' '}
+            <a href="/privacy" class="text-primary-600 hover:text-primary-700">
+              privacy policy
+            </a>{' '}
+            covers everything else we collect, and how long we keep it.
           </p>
         </section>
 

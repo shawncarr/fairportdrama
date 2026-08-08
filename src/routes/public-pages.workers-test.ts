@@ -493,3 +493,46 @@ describe('the sitemap', () => {
     expect(txt).toContain('sitemap.xml');
   });
 });
+
+describe('the legal pages Google requires', () => {
+  it('both render and are reachable from every page footer', async () => {
+    expect(await body('/privacy')).toContain('Privacy Policy');
+    expect(await body('/terms')).toContain('Terms of Use');
+
+    const home = await body('/');
+    expect(home).toContain('href="/privacy"');
+    expect(home).toContain('href="/terms"');
+  });
+
+  it('are listed in the sitemap, so Google can reach them', async () => {
+    const xml = await (await get('/sitemap.xml')).text();
+    expect(xml).toContain('/privacy');
+    expect(xml).toContain('/terms');
+  });
+
+  it('name the third parties that actually receive data', async () => {
+    const html = await body('/privacy');
+    expect(html).toContain('Cloudflare');
+    expect(html).toContain('Google');
+  });
+
+  it('states plainly that change records are kept indefinitely', async () => {
+    // No purge has been built. Implying a retention schedule we do not have
+    // would be the easiest thing here to get quietly wrong.
+    expect(await body('/privacy')).toContain('kept indefinitely');
+  });
+
+  it('says the newsletter is not sent from this site', async () => {
+    expect(await body('/privacy')).toContain('do not currently send');
+  });
+
+  it('tells people how to have information removed', async () => {
+    const html = await body('/privacy');
+    expect(html).toContain('/about/contact');
+    expect(html).toContain('remove');
+  });
+
+  it('the terms say nothing is sold here', async () => {
+    expect(await body('/terms')).toContain('Nothing is sold here');
+  });
+});

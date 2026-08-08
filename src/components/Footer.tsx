@@ -165,13 +165,21 @@ export function Footer({ year }: { year: number }) {
             </p>
             <p class="text-sm text-neutral-400">
               This site is operated by the Fairport Drama Club Boosters, a community
-              volunteer organization supporting student theater.{' '}
-              <a
-                href="/disclaimer"
-                class="text-neutral-300 hover:text-white transition-colors underline"
-              >
-                Disclaimer
-              </a>
+              volunteer organization supporting student theater.
+            </p>
+            <p class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-neutral-400">
+              {[
+                { href: '/privacy', label: 'Privacy' },
+                { href: '/terms', label: 'Terms' },
+                { href: '/disclaimer', label: 'Disclaimer' },
+              ].map((link) => (
+                <a
+                  href={link.href}
+                  class="text-neutral-300 hover:text-white transition-colors underline"
+                >
+                  {link.label}
+                </a>
+              ))}
             </p>
           </div>
         </div>
