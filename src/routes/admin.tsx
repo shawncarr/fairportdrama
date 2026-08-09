@@ -1,6 +1,11 @@
 import { Hono, type Context } from 'hono';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { AppEnv } from '~/env';
+import {
+  RosterFilterScript,
+  RosterFilters,
+  rosterRowAttrs,
+} from '~/components/RosterFilter';
 import { getDb, getGallery, getPerformances } from '~/db/queries';
 import {
   members,
@@ -859,6 +864,10 @@ adminRoutes.get('/admin/members', requirePermission('member', 'update'), async (
   const advanced = c.req.query('advanced');
   const advanceError = c.req.query('advanceError');
 
+  // Only the grades somebody is actually in, so the filter never offers an
+  // option that selects nothing.
+  const gradesInUse = GRADES.filter((g) => roster.some((m) => m.grade === g));
+
   const canAdvance = can(c.get('role')!, 'member', 'advanceYear');
   const schoolYear = schoolYearStart(new Date());
   const rollover = canAdvance ? await previewAdvanceGrades(db) : null;
@@ -966,12 +975,20 @@ adminRoutes.get('/admin/members', requirePermission('member', 'update'), async (
         </details>
       )}
 
+      <RosterFilters grades={gradesInUse} />
+
       <form method="post" action="/admin/members/visibility">
         <div class="bg-white rounded-xl ring-1 ring-neutral-200 overflow-x-auto">
           <table class="w-full text-sm">
             <thead class="bg-neutral-50 text-left">
               <tr>
-                <th class="px-4 py-3 w-8" />
+                <th class="px-4 py-3 w-8">
+                  <input
+                    type="checkbox"
+                    id="roster-select-all"
+                    aria-label="Select all shown members"
+                  />
+                </th>
                 <th class="px-4 py-3 font-medium text-neutral-600">Name</th>
                 <th class="px-4 py-3 font-medium text-neutral-600">Grade</th>
                 <th class="px-4 py-3 font-medium text-neutral-600">Visibility</th>
@@ -980,7 +997,17 @@ adminRoutes.get('/admin/members', requirePermission('member', 'update'), async (
             </thead>
             <tbody class="divide-y divide-neutral-100">
               {roster.map((m) => (
-                <tr class={m.isActive ? '' : 'opacity-50'}>
+                <tr
+                  class={m.isActive ? '' : 'opacity-50'}
+                  {...rosterRowAttrs({
+                    name: m.name,
+                    grade: m.grade,
+                    visibility: m.visibility,
+                    isActive: m.isActive,
+                    hasPhoto: Boolean(m.hasPhoto),
+                    hasBio: Boolean(m.hasBio),
+                  })}
+                >
                   <td class="px-4 py-2">
                     <input type="checkbox" name="memberIds" value={m.id} />
                   </td>
@@ -1015,6 +1042,14 @@ adminRoutes.get('/admin/members', requirePermission('member', 'update'), async (
           </table>
         </div>
 
+        <p class="mt-3 text-sm text-neutral-500" role="status" aria-live="polite">
+          Showing <span data-shown>{roster.length}</span> of {roster.length}.
+          <span data-selected-wrap class="hidden">
+            {' '}
+            <strong data-selected>0</strong> selected.
+          </span>
+        </p>
+
         <div class="flex flex-wrap gap-3 mt-4 items-center">
           <button
             type="submit"
@@ -1038,6 +1073,8 @@ adminRoutes.get('/admin/members', requirePermission('member', 'update'), async (
           </label>
         </div>
       </form>
+
+      <RosterFilterScript />
     </div>,
     { title: 'Members' },
   );
