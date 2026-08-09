@@ -14,7 +14,11 @@ export const STATEMENT = {
   // `setOfficer` is separate from `update` on purpose: officers may build the
   // roster, but naming who holds a club office is not something a student
   // should be able to do for themselves or a friend.
-  member: ['create', 'update', 'setOfficer'],
+  //
+  // `advanceYear` is separate for a different reason: it rewrites the grade of
+  // every member at once and graduates the seniors, and there is no undo short
+  // of editing them back by hand. An adult presses that one.
+  member: ['create', 'update', 'setOfficer', 'advanceYear'],
   // Visibility rides on `update`: the split that matters for a self-edit is
   // whether a field needs approval, which selfEditNeedsApproval decides, not
   // a second permission nothing ever checked.
@@ -44,7 +48,7 @@ const GRANTS: Record<AppRole, RoleGrants> = {
     show: ['create', 'update', 'delete'],
     cast: ['assign'],
     news: ['create', 'update', 'delete'],
-    member: ['create', 'update', 'setOfficer'],
+    member: ['create', 'update', 'setOfficer', 'advanceYear'],
     memberSelf: ['update'],
     memberEdit: ['approve'],
     sponsor: ['manage'],
@@ -59,7 +63,7 @@ const GRANTS: Record<AppRole, RoleGrants> = {
     show: ['create', 'update', 'delete'],
     cast: ['assign'],
     news: ['create', 'update', 'delete'],
-    member: ['create', 'update', 'setOfficer'],
+    member: ['create', 'update', 'setOfficer', 'advanceYear'],
     memberSelf: ['update'],
     memberEdit: ['approve'],
     sponsor: ['manage'],

@@ -261,6 +261,29 @@ async function officesForMember(db: DB, memberId: string): Promise<HeldOffice[]>
   return rows.map(toOffice);
 }
 
+/**
+ * Roles for the whole active roster, keyed by member.
+ *
+ * Joined for the same reason the offices are: one bound parameter per member
+ * is what broke the directory on D1.
+ */
+async function rolesForActiveMembers(db: DB) {
+  const rows = await db
+    .select({ memberId: memberRoles.memberId, role: memberRoles.role })
+    .from(memberRoles)
+    .innerJoin(members, eq(members.id, memberRoles.memberId))
+    .where(eq(members.isActive, true))
+    .orderBy(asc(memberRoles.role));
+
+  const byMember = new Map<string, string[]>();
+  for (const row of rows) {
+    const list = byMember.get(row.memberId) ?? [];
+    list.push(row.role);
+    byMember.set(row.memberId, list);
+  }
+  return byMember;
+}
+
 export async function getActiveMembers(db: DB) {
   const rows = await db
     .select()
@@ -269,6 +292,7 @@ export async function getActiveMembers(db: DB) {
     .orderBy(asc(members.name));
 
   const offices = await officesForActiveMembers(db);
+  const roles = await rolesForActiveMembers(db);
 
   return rows.map((r) => {
     const held = offices.get(r.id) ?? [];
@@ -281,6 +305,7 @@ export async function getActiveMembers(db: DB) {
       isOfficer: current !== null,
       officerTitle: current?.title ?? null,
       offices: held,
+      roles: roles.get(r.id) ?? [],
     };
   });
 }

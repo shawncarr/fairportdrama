@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import type { DB } from '~/db/queries';
 import {
   memberOffices,
@@ -6,26 +6,19 @@ import {
   MEMBER_VISIBILITY,
   type MemberVisibility,
 } from '~/db/schema/content';
+import { auditEvents } from '~/db/schema/governance';
 import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
+import { ADVANCING_GRADES, GRADES, isGrade, nextGrade, type Grade } from '~/lib/grades';
 import { buildDiff, isEmptyDiff } from '~/lib/audit/diff';
 import { writeWithAudit } from '~/lib/audit/write';
 import type { Actor } from '~/lib/audit/actor';
 import { generateId } from '~/lib/id';
 import { slugify } from './news';
 
-/** The grades already in use, plus the two non-student values. */
-export const GRADES = [
-  'Freshman',
-  'Sophomore',
-  'Junior',
-  'Senior',
-  'Alumni',
-  'Faculty',
-] as const;
-
-export type Grade = (typeof GRADES)[number];
-
-export const isGrade = (v: string): v is Grade => (GRADES as readonly string[]).includes(v);
+// The grade vocabulary lives in lib/grades.ts alongside the rollover that
+// moves members through it. Re-exported here because that is where callers
+// already look for it.
+export { GRADES, isGrade, type Grade };
 
 export interface CreateMemberInput {
   name: string;
@@ -428,4 +421,108 @@ export async function getOffices(db: DB, memberId: string) {
     .from(memberOffices)
     .where(eq(memberOffices.memberId, memberId))
     .orderBy(desc(memberOffices.startYear));
+}
+
+// ------------------------------------------------- school year rollover
+
+export interface AdvanceGradesPreview {
+  /** How many members sit in each advancing grade right now. */
+  counts: { grade: Grade; next: Grade; count: number }[];
+  total: number;
+  graduating: number;
+}
+
+/** What the rollover would do, without doing it. */
+export async function previewAdvanceGrades(db: DB): Promise<AdvanceGradesPreview> {
+  const rows = await db
+    .select({ grade: members.grade, count: sql<number>`COUNT(*)` })
+    .from(members)
+    .where(eq(members.isActive, true))
+    .groupBy(members.grade);
+
+  const byGrade = new Map(rows.map((r) => [r.grade, Number(r.count)]));
+  const counts = ADVANCING_GRADES.map((grade) => ({
+    grade,
+    next: nextGrade(grade)!,
+    count: byGrade.get(grade) ?? 0,
+  })).filter((c) => c.count > 0);
+
+  return {
+    counts,
+    total: counts.reduce((n, c) => n + c.count, 0),
+    graduating: byGrade.get('Senior') ?? 0,
+  };
+}
+
+export type AdvanceGradesResult =
+  | { ok: true; advanced: number; graduated: number }
+  | { ok: false; reason: 'already-run' };
+
+/**
+ * Moves every student on one grade and graduates the seniors.
+ *
+ * Guarded against running twice for the same school year, which is the failure
+ * that actually matters: there is no undo, and a second pass would put this
+ * year's freshmen into junior year and graduate the juniors. The guard reads
+ * the audit log rather than a flag column - the log already has to record this,
+ * and a separate marker could disagree with it.
+ *
+ * Written one member at a time, like the bulk visibility change, so each grade
+ * lands on its own audit row. "Why does my profile say Alumni" is a question
+ * about one person.
+ */
+export async function advanceGrades(
+  db: DB,
+  actor: Actor,
+  schoolYear: number,
+): Promise<AdvanceGradesResult> {
+  const [alreadyRun] = await db
+    .select({ id: auditEvents.id })
+    .from(auditEvents)
+    .where(
+      and(
+        eq(auditEvents.action, AUDIT_ACTION.MemberGradeAdvanced),
+        sql`json_extract(${auditEvents.payload}, '$.schoolYear') = ${schoolYear}`,
+      ),
+    )
+    .limit(1);
+
+  if (alreadyRun) return { ok: false, reason: 'already-run' };
+
+  const roster = await db
+    .select({ id: members.id, grade: members.grade })
+    .from(members)
+    .where(eq(members.isActive, true))
+    .orderBy(asc(members.id));
+
+  let advanced = 0;
+  let graduated = 0;
+
+  for (const row of roster) {
+    const next = nextGrade(row.grade);
+    if (next === null) continue;
+
+    await writeWithAudit(
+      db,
+      actor,
+      [
+        db
+          .update(members)
+          .set({ grade: next, updatedAt: new Date().toISOString() })
+          .where(eq(members.id, row.id)),
+      ],
+      {
+        action: AUDIT_ACTION.MemberGradeAdvanced,
+        targetKind: AUDIT_ENTITY_KIND.Member,
+        targetId: row.id,
+        diff: { grade: { before: row.grade, after: next } },
+        payload: { schoolYear },
+      },
+    );
+
+    advanced++;
+    if (next === 'Alumni') graduated++;
+  }
+
+  return { ok: true, advanced, graduated };
 }

@@ -57,15 +57,18 @@ import { addGalleryImages, removeGalleryImage } from '~/services/gallery';
 import {
   GRADES,
   addOffice,
+  advanceGrades,
   createMember,
   deleteOffice,
   endOffice,
   getOffices,
   isGrade,
+  previewAdvanceGrades,
   reactivateMember,
   removeMemberInformation,
   updateMember,
 } from '~/services/members';
+import { gradePlural, schoolYearLabel, schoolYearStart } from '~/lib/grades';
 import {
   NEWS_CATEGORY_LABELS,
   createNewsPost,
@@ -853,6 +856,12 @@ adminRoutes.get('/admin/members', requirePermission('member', 'update'), async (
   const created = c.req.query('created');
   const invited = c.req.query('invited');
   const inviteError = c.req.query('inviteError');
+  const advanced = c.req.query('advanced');
+  const advanceError = c.req.query('advanceError');
+
+  const canAdvance = can(c.get('role')!, 'member', 'advanceYear');
+  const schoolYear = schoolYearStart(new Date());
+  const rollover = canAdvance ? await previewAdvanceGrades(db) : null;
 
   return c.render(
     <div class="space-y-6">
@@ -890,11 +899,72 @@ adminRoutes.get('/admin/members', requirePermission('member', 'update'), async (
         </p>
       )}
 
+      {advanced && (
+        <p class="rounded-lg bg-green-50 text-green-800 text-sm px-4 py-3 ring-1 ring-green-200">
+          Moved {advanced} member{advanced === '1' ? '' : 's'} up a grade.
+        </p>
+      )}
+
+      {advanceError && (
+        <p class="rounded-lg bg-amber-50 text-amber-900 text-sm px-4 py-3 ring-1 ring-amber-200">
+          {advanceError}
+        </p>
+      )}
+
       <div class="rounded-lg bg-amber-50 text-amber-900 text-sm px-4 py-3 ring-1 ring-amber-200">
         <strong>{publicCount} of {roster.length}</strong> members show a full profile.
         Everyone else appears as first name and last initial with no photo. Only make
         someone public if a photo release is on file for them.
       </div>
+
+      {rollover && rollover.total > 0 && (
+        <details class="rounded-xl bg-white ring-1 ring-neutral-200 px-4 py-3">
+          <summary class="cursor-pointer text-sm font-medium text-neutral-800">
+            Start the {schoolYearLabel(schoolYear)} school year
+          </summary>
+
+          <div class="mt-4 space-y-4 text-sm text-neutral-700">
+            <p>
+              Moves every student up one grade. This is the only place grades change in
+              bulk, and there is no undo - putting {rollover.total} members back is{' '}
+              {rollover.total} edits by hand.
+            </p>
+
+            <ul class="space-y-1">
+              {rollover.counts.map((row) => (
+                <li>
+                  <strong>{row.count}</strong> {gradePlural(row.grade)} &rarr;{' '}
+                  {gradePlural(row.next)}
+                  {row.next === 'Alumni' && (
+                    <span class="text-amber-700"> (they leave the members page)</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+
+            <form
+              method="post"
+              action="/admin/members/advance-year"
+              onsubmit={`return confirm('Move ${rollover.total} members up a grade and graduate ${rollover.graduating} seniors? This cannot be undone.')`}
+            >
+              <input type="hidden" name="schoolYear" value={String(schoolYear)} />
+              <label class="flex items-start gap-2 mb-3">
+                <input type="checkbox" name="acknowledged" required class="mt-1" />
+                <span>
+                  I am starting the {schoolYearLabel(schoolYear)} year and the{' '}
+                  {rollover.graduating} current seniors have graduated
+                </span>
+              </label>
+              <button
+                type="submit"
+                class="px-5 py-2 bg-neutral-800 hover:bg-neutral-900 text-white font-medium rounded-lg transition-colors"
+              >
+                Advance all grades
+              </button>
+            </form>
+          </div>
+        </details>
+      )}
 
       <form method="post" action="/admin/members/visibility">
         <div class="bg-white rounded-xl ring-1 ring-neutral-200 overflow-x-auto">
@@ -1300,6 +1370,31 @@ adminRoutes.post(
   async (c) => {
     await reactivateMember(getDb(c.env.DB), c.get('actor'), c.req.param('id'));
     return c.redirect('/admin/members', 302);
+  },
+);
+
+adminRoutes.post(
+  '/admin/members/advance-year',
+  requirePermission('member', 'advanceYear'),
+  async (c) => {
+    const form = await c.req.formData();
+    // Enforced server-side, not merely marked required in the markup.
+    if (!form.get('acknowledged')) return c.redirect('/admin/members', 302);
+
+    // The year comes from the form rather than the clock so that the page the
+    // person read is the year they advanced. A tab left open across July would
+    // otherwise run a different rollover than the one it described.
+    const schoolYear = Number(form.get('schoolYear'));
+    if (!Number.isInteger(schoolYear)) return c.redirect('/admin/members', 302);
+
+    const result = await advanceGrades(getDb(c.env.DB), c.get('actor'), schoolYear);
+
+    if (!result.ok) {
+      const message = `Grades have already been advanced for ${schoolYearLabel(schoolYear)}. Nothing was changed.`;
+      return c.redirect(`/admin/members?advanceError=${encodeURIComponent(message)}`, 302);
+    }
+
+    return c.redirect(`/admin/members?advanced=${result.advanced}`, 302);
   },
 );
 

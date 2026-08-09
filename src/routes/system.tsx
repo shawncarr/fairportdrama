@@ -28,6 +28,7 @@ systemRoutes.get('/sitemap.xml', async (c) => {
     '/',
     '/shows/past',
     '/members',
+    '/members/alumni',
     '/news',
     '/spiritwear',
     '/about/boosters',

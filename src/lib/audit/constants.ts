@@ -33,6 +33,13 @@ export const AUDIT_ACTION = {
   MemberVisibilityChanged: 'Member.VisibilityChanged',
   /** A term of office recorded, closed, or removed. */
   MemberOfficeChanged: 'Member.OfficeChanged',
+  /**
+   * A grade moved on by the school-year rollover rather than edited by hand.
+   * Distinct from MemberUpdated so the rollover can tell whether it has
+   * already run for a given year: advancing twice would put a freshman into
+   * junior year with nothing to undo it.
+   */
+  MemberGradeAdvanced: 'Member.GradeAdvanced',
   /** A removal request honoured: photo, bio, and surname taken down. */
   MemberInformationRemoved: 'Member.InformationRemoved',
   MemberEditSubmitted: 'Member.EditSubmitted',
