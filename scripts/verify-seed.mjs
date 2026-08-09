@@ -157,7 +157,9 @@ console.log('');
 const sampleMember = members.find((m) => m.data.bio && m.data.isOfficer);
 if (sampleMember) {
   const row = sql(
-    `SELECT name, bio, officer_title FROM members WHERE id='${sampleMember.id}'`,
+    `SELECT m.name, m.bio, o.title AS officer_title FROM members m
+       LEFT JOIN member_offices o ON o.member_id = m.id
+      WHERE m.id='${sampleMember.id}'`,
   )[0];
   check(`${sampleMember.id} name`, sampleMember.data.name, row.name);
   check(`${sampleMember.id} bio length`, sampleMember.data.bio.length, row.bio.length);

@@ -31,6 +31,8 @@ export const AUDIT_ACTION = {
   MemberCreated: 'Member.Created',
   MemberUpdated: 'Member.Updated',
   MemberVisibilityChanged: 'Member.VisibilityChanged',
+  /** A term of office recorded, closed, or removed. */
+  MemberOfficeChanged: 'Member.OfficeChanged',
   /** A removal request honoured: photo, bio, and surname taken down. */
   MemberInformationRemoved: 'Member.InformationRemoved',
   MemberEditSubmitted: 'Member.EditSubmitted',

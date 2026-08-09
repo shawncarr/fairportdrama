@@ -84,6 +84,22 @@ memberRoutes.get('/members/:slug', async (c) => {
             {member.officerTitle && ` · ${member.officerTitle}`}
           </p>
 
+          {member.offices.length > 0 && (
+            <ul class="mt-4 space-y-1">
+              {member.offices.map((office) => (
+                <li class="text-sm">
+                  <span class="font-medium text-neutral-800">{office.title}</span>
+                  <span class="text-neutral-500"> · {office.term}</span>
+                  {!office.isCurrent && (
+                    <span class="ml-2 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600 text-xs align-middle">
+                      past
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
           {member.roles.length > 0 && (
             <ul class="flex flex-wrap gap-2 mt-4">
               {member.roles.map((role) => (

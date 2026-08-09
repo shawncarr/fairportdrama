@@ -41,13 +41,46 @@ export const members = sqliteTable(
       .notNull()
       .default(MEMBER_VISIBILITY.Limited),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
-    isOfficer: integer('is_officer', { mode: 'boolean' }).notNull().default(false),
-    officerTitle: text('officer_title'),
     ...timestamps,
   },
   (t) => [
     index('idx_members_active').on(t.isActive),
     index('idx_members_visibility').on(t.visibility),
+  ],
+);
+
+/**
+ * Club offices a member has held.
+ *
+ * Replaces the `is_officer` flag and `officer_title` column, which described
+ * only the present: when a term ended, the office was erased along with any
+ * record it happened. Six of the seven officers on the roster at the time were
+ * Seniors, so a board turnover would have taken the whole history with it.
+ *
+ * A term is a school year. `endYear` is null while the office is held, which
+ * is what makes someone a current officer - there is no separate flag to
+ * disagree with this table.
+ */
+export const memberOffices = sqliteTable(
+  'member_offices',
+  {
+    id: text('id').primaryKey(),
+    memberId: text('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    /** School year the term began: 2025 means the 2025-2026 year. */
+    startYear: integer('start_year').notNull(),
+    /** Null while they still hold it. */
+    endYear: integer('end_year'),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (t) => [
+    index('idx_offices_member').on(t.memberId, t.startYear),
+    // Finding the sitting board is the commonest read on the members page.
+    index('idx_offices_current').on(t.endYear),
   ],
 );
 

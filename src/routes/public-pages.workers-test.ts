@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { getDb } from '~/db/queries';
 import {
+  memberOffices,
   memberRoles,
   members,
   news,
@@ -51,8 +52,6 @@ async function seedMembers() {
       bio: 'Playing Percy this spring.',
       photoImageId: 'img-daniel',
       visibility: MEMBER_VISIBILITY.Full,
-      isOfficer: true,
-      officerTitle: 'President',
       isActive: true,
     },
     {
@@ -65,6 +64,15 @@ async function seedMembers() {
       isActive: true,
     },
   ]);
+
+  // Officer status is derived from an open term, so the fixture records one.
+  await db().insert(memberOffices).values({
+    id: 'office-daniel',
+    memberId: 'daniel-doser',
+    title: 'President',
+    startYear: 2026,
+    endYear: null,
+  });
 
   await db().insert(memberRoles).values([
     { memberId: 'daniel-doser', role: 'actor' },
@@ -148,6 +156,7 @@ beforeEach(async () => {
     'news',
     'sponsors',
     'spirit_wear',
+    'member_offices',
     'member_roles',
     'members',
   ]);

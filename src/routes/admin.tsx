@@ -56,7 +56,11 @@ import {
 import { addGalleryImages, removeGalleryImage } from '~/services/gallery';
 import {
   GRADES,
+  addOffice,
   createMember,
+  deleteOffice,
+  endOffice,
+  getOffices,
   isGrade,
   reactivateMember,
   removeMemberInformation,
@@ -975,8 +979,6 @@ interface MemberFormValues {
   name: string;
   grade: string;
   graduationYear: string;
-  isOfficer: boolean;
-  officerTitle: string;
   email: string;
   role: string;
 }
@@ -985,8 +987,6 @@ const EMPTY_MEMBER_FORM: MemberFormValues = {
   name: '',
   grade: 'Freshman',
   graduationYear: '',
-  isOfficer: false,
-  officerTitle: '',
   email: '',
   role: APP_ROLE.Member,
 };
@@ -1068,29 +1068,10 @@ function MemberForm({
         </p>
 
         {canSetOfficer && (
-          <div class="pt-2 border-t border-neutral-100 space-y-3">
-            <label class="flex items-center gap-2 text-sm text-neutral-700">
-              <input type="checkbox" name="isOfficer" value="1" checked={values.isOfficer} />
-              This member is a club officer
-            </label>
-            <div>
-              <label
-                for={`m-title-${key}`}
-                class="block text-sm font-medium text-neutral-700 mb-1"
-              >
-                Officer title
-              </label>
-              <input
-                type="text"
-                id={`m-title-${key}`}
-                name="officerTitle"
-                maxlength={60}
-                placeholder="President"
-                value={values.officerTitle}
-                class={field}
-              />
-            </div>
-          </div>
+          <p class="text-sm text-neutral-600">
+            Club offices are recorded on the member's own page once they exist, so a
+            term can carry a start and end year rather than being a checkbox.
+          </p>
         )}
       </div>
 
@@ -1202,10 +1183,6 @@ adminRoutes.post('/admin/members/new', requirePermission('member', 'create'), as
     name: String(form.get('name') ?? ''),
     grade: String(form.get('grade') ?? 'Freshman'),
     graduationYear: String(form.get('graduationYear') ?? '').trim(),
-    // Read only when the role may set them. Posting the fields by hand is not
-    // enough to make someone an officer.
-    isOfficer: canSetOfficer && Boolean(form.get('isOfficer')),
-    officerTitle: canSetOfficer ? String(form.get('officerTitle') ?? '').trim() : '',
     email: canInvite ? String(form.get('email') ?? '').trim() : '',
     role: String(form.get('role') ?? APP_ROLE.Member),
   };
@@ -1219,8 +1196,6 @@ adminRoutes.post('/admin/members/new', requirePermission('member', 'create'), as
       name: values.name,
       grade: isGrade(values.grade) ? values.grade : 'Freshman',
       graduationYear: Number.isFinite(year) ? year : null,
-      isOfficer: values.isOfficer,
-      officerTitle: values.officerTitle.length > 0 ? values.officerTitle : null,
     },
     { allowDuplicateName: Boolean(form.get('allowDuplicate')) },
   );
@@ -1401,6 +1376,11 @@ adminRoutes.get('/admin/members/:id', requirePermission('member', 'update'), asy
     );
 
   const canSetOfficer = can(role, 'member', 'setOfficer');
+  const offices = await getOffices(db, id);
+  // A school year is named for the calendar year it starts in, and it starts
+  // in August, so anything before then still belongs to the previous one.
+  const now = new Date();
+  const schoolYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
   const photo = images.deliveryUrl(member.photoImageId, IMAGE_VARIANT.Thumb);
   const saved = c.req.query('saved');
   const error = c.req.query('error');
@@ -1508,30 +1488,6 @@ adminRoutes.get('/admin/members/:id', requirePermission('member', 'update'), asy
             Currently on the roster
           </label>
 
-          {canSetOfficer && (
-            <div class="pt-3 border-t border-neutral-100 space-y-3">
-              <label class="flex items-center gap-2 text-sm text-neutral-700">
-                <input type="checkbox" name="isOfficer" value="1" checked={member.isOfficer} />
-                Club officer
-              </label>
-              <div>
-                <label
-                  for="e-title"
-                  class="block text-sm font-medium text-neutral-700 mb-1"
-                >
-                  Officer title
-                </label>
-                <input
-                  type="text"
-                  id="e-title"
-                  name="officerTitle"
-                  maxlength={60}
-                  value={member.officerTitle ?? ''}
-                  class={field}
-                />
-              </div>
-            </div>
-          )}
         </div>
 
         <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 space-y-4">
@@ -1644,6 +1600,121 @@ adminRoutes.get('/admin/members/:id', requirePermission('member', 'update'), asy
         </button>
       </form>
 
+      {canSetOfficer && (
+        <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-6">
+          <h2 class="font-display font-semibold text-neutral-900">Club offices</h2>
+          <p class="text-sm text-neutral-600 mt-1 mb-4">
+            A term stays on their profile after it ends, so a student can point at what
+            they held and when. Someone is a current officer exactly while a term has no
+            end year.
+          </p>
+
+          {offices.length > 0 && (
+            <ul class="space-y-2 mb-5">
+              {offices.map((o) => (
+                <li class="flex flex-wrap items-center gap-3 text-sm">
+                  <span class="font-medium text-neutral-900">{o.title}</span>
+                  <span class="text-neutral-500">
+                    {o.startYear}
+                    {'–'}
+                    {o.endYear ?? 'present'}
+                  </span>
+                  {o.endYear === null && (
+                    <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs">
+                      current
+                    </span>
+                  )}
+
+                  {o.endYear === null && (
+                    <form
+                      method="post"
+                      action={`/admin/members/${member.id}/offices/${o.id}/end`}
+                      class="flex items-center gap-2"
+                    >
+                      <input
+                        type="text"
+                        name="endYear"
+                        inputmode="numeric"
+                        value={String(o.startYear + 1)}
+                        class="w-20 px-2 py-1 rounded border border-neutral-300 text-sm"
+                        aria-label="Year the term ended"
+                      />
+                      <button
+                        type="submit"
+                        class="px-3 py-1 text-xs bg-neutral-100 hover:bg-neutral-200 rounded transition-colors"
+                      >
+                        End term
+                      </button>
+                    </form>
+                  )}
+
+                  <form
+                    method="post"
+                    action={`/admin/members/${member.id}/offices/${o.id}/delete`}
+                    onsubmit="return confirm('Remove this term entirely? Ending it is usually what you want.')"
+                    class="ml-auto"
+                  >
+                    <button
+                      type="submit"
+                      class="px-2 py-1 text-xs text-red-700 hover:bg-red-50 rounded transition-colors"
+                    >
+                      Remove
+                    </button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <form
+            method="post"
+            action={`/admin/members/${member.id}/offices`}
+            class="flex flex-wrap gap-3 items-end pt-4 border-t border-neutral-100"
+          >
+            <div class="flex-1 min-w-40">
+              <label for="o-title" class="block text-xs font-medium text-neutral-600 mb-1">
+                Office
+              </label>
+              <input
+                type="text"
+                id="o-title"
+                name="title"
+                required
+                maxlength={60}
+                placeholder="Treasurer"
+                class="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm"
+              />
+            </div>
+            <div>
+              <label for="o-start" class="block text-xs font-medium text-neutral-600 mb-1">
+                School year starting
+              </label>
+              <input
+                type="text"
+                id="o-start"
+                name="startYear"
+                required
+                inputmode="numeric"
+                value={String(schoolYear)}
+                class="w-24 px-3 py-2 rounded-lg border border-neutral-300 text-sm"
+              />
+            </div>
+            <button
+              type="submit"
+              class="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              Add term
+            </button>
+          </form>
+          <p class="text-xs text-neutral-500 mt-2">
+            {schoolYear}
+            {'–'}
+            {schoolYear + 1} is the current school year. Leave a term open; end it when
+            the board changes.
+          </p>
+        </div>
+      )}
+
       <div class="bg-white rounded-xl ring-1 ring-red-200 p-6">
         <h2 class="font-display font-semibold text-neutral-900">
           Remove their information
@@ -1715,7 +1786,6 @@ adminRoutes.post('/admin/members/:id', requirePermission('member', 'update'), as
   const year = Number.parseInt(String(form.get('graduationYear') ?? ''), 10);
   const bio = String(form.get('bio') ?? '').trim();
   const instagram = String(form.get('instagram') ?? '').trim();
-  const title = String(form.get('officerTitle') ?? '').trim();
 
   await updateMember(db, c.get('actor'), id, {
     name: name.length > 0 ? name : undefined,
@@ -1726,14 +1796,68 @@ adminRoutes.post('/admin/members/:id', requirePermission('member', 'update'), as
     photoImageId,
     visibility,
     isActive: Boolean(form.get('isActive')),
-    // Dropped for a role without member.setOfficer, so posting the field by
-    // hand cannot promote anyone.
-    isOfficer: canSetOfficer ? Boolean(form.get('isOfficer')) : undefined,
-    officerTitle: canSetOfficer ? (title.length > 0 ? title : null) : undefined,
   });
 
   return back('?saved=1');
 });
+
+adminRoutes.post(
+  '/admin/members/:id/offices',
+  requirePermission('member', 'setOfficer'),
+  async (c) => {
+    const id = c.req.param('id');
+    const form = await c.req.formData();
+    const startYear = Number.parseInt(String(form.get('startYear') ?? ''), 10);
+
+    if (!Number.isFinite(startYear) || startYear < 1900 || startYear > 2200) {
+      return c.redirect(
+        `/admin/members/${id}?error=${encodeURIComponent('Enter a four-digit year.')}`,
+        302,
+      );
+    }
+
+    const result = await addOffice(getDb(c.env.DB), c.get('actor'), id, {
+      title: String(form.get('title') ?? ''),
+      startYear,
+    });
+
+    return c.redirect(
+      result.ok
+        ? `/admin/members/${id}?saved=1`
+        : `/admin/members/${id}?error=${encodeURIComponent(result.error)}`,
+      302,
+    );
+  },
+);
+
+adminRoutes.post(
+  '/admin/members/:id/offices/:officeId/end',
+  requirePermission('member', 'setOfficer'),
+  async (c) => {
+    const id = c.req.param('id');
+    const form = await c.req.formData();
+    const endYear = Number.parseInt(String(form.get('endYear') ?? ''), 10);
+
+    if (!Number.isFinite(endYear)) {
+      return c.redirect(
+        `/admin/members/${id}?error=${encodeURIComponent('Enter the year the term ended.')}`,
+        302,
+      );
+    }
+
+    await endOffice(getDb(c.env.DB), c.get('actor'), c.req.param('officeId'), endYear);
+    return c.redirect(`/admin/members/${id}?saved=1`, 302);
+  },
+);
+
+adminRoutes.post(
+  '/admin/members/:id/offices/:officeId/delete',
+  requirePermission('member', 'setOfficer'),
+  async (c) => {
+    await deleteOffice(getDb(c.env.DB), c.get('actor'), c.req.param('officeId'));
+    return c.redirect(`/admin/members/${c.req.param('id')}?saved=1`, 302);
+  },
+);
 
 adminRoutes.post(
   '/admin/members/:id/remove',

@@ -97,6 +97,7 @@ const members = readEntries('members');
 stats.members = members.length;
 stats.memberPhotos = 0;
 stats.memberRoles = 0;
+stats.offices = 0;
 
 /**
  * Members who have appeared in a production.
@@ -130,7 +131,7 @@ for (const { id, data } of members) {
   else stats.membersHidden++;
 
   emit(
-    `INSERT INTO members (id,name,grade,graduation_year,photo_image_id,bio,instagram,visibility,is_active,is_officer,officer_title) VALUES (` +
+    `INSERT INTO members (id,name,grade,graduation_year,photo_image_id,bio,instagram,visibility,is_active) VALUES (` +
       [
         q(id),
         q(data.name),
@@ -141,11 +142,21 @@ for (const { id, data } of members) {
         q(data.instagram ?? null),
         q(visibility),
         q(data.isActive ?? true),
-        q(data.isOfficer ?? false),
-        q(data.officerTitle ?? null),
       ].join(',') +
       ');',
   );
+
+  // The archive's officers held their terms during the 2025-2026 season, the
+  // one its shows cover. Recorded as completed rather than current: the flag
+  // it replaced had no way to say when, so it always read as "now".
+  if (data.isOfficer && data.officerTitle) {
+    stats.offices++;
+    emit(
+      `INSERT INTO member_offices (id,member_id,title,start_year,end_year) VALUES (` +
+        [q(`office-2025-${id}`), q(id), q(data.officerTitle), 2025, 2026].join(',') +
+        ');',
+    );
+  }
 
   for (const role of data.roles ?? []) {
     stats.memberRoles++;

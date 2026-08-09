@@ -1,10 +1,16 @@
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import type { DB } from '~/db/queries';
-import { members, MEMBER_VISIBILITY, type MemberVisibility } from '~/db/schema/content';
+import {
+  memberOffices,
+  members,
+  MEMBER_VISIBILITY,
+  type MemberVisibility,
+} from '~/db/schema/content';
 import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import { buildDiff, isEmptyDiff } from '~/lib/audit/diff';
 import { writeWithAudit } from '~/lib/audit/write';
 import type { Actor } from '~/lib/audit/actor';
+import { generateId } from '~/lib/id';
 import { slugify } from './news';
 
 /** The grades already in use, plus the two non-student values. */
@@ -25,9 +31,6 @@ export interface CreateMemberInput {
   name: string;
   grade: Grade;
   graduationYear?: number | null;
-  /** Only set by a caller holding member.setOfficer. */
-  isOfficer?: boolean;
-  officerTitle?: string | null;
 }
 
 export type CreateMemberResult =
@@ -103,8 +106,6 @@ export async function createMember(
         graduationYear: input.graduationYear ?? null,
         visibility: MEMBER_VISIBILITY.Limited,
         isActive: true,
-        isOfficer: input.isOfficer ?? false,
-        officerTitle: input.officerTitle ?? null,
       }),
     ],
     {
@@ -114,9 +115,6 @@ export async function createMember(
       payload: {
         name,
         grade: input.grade,
-        // Recorded because it is the one field on this form a student officer
-        // is not allowed to set.
-        isOfficer: input.isOfficer ?? false,
         // Noted explicitly so the log shows a new member started hidden,
         // rather than leaving it to be inferred from a missing field.
         visibility: MEMBER_VISIBILITY.Limited,
@@ -184,8 +182,6 @@ export interface UpdateMemberInput {
   photoImageId: string | null;
   instagram: string | null;
   visibility: MemberVisibility;
-  isOfficer: boolean;
-  officerTitle: string | null;
   isActive: boolean;
 }
 
@@ -306,4 +302,130 @@ export async function removeMemberInformation(
   );
 
   return { removed: true };
+}
+
+// ------------------------------------------------------------------ offices
+
+/**
+ * Records a term of office.
+ *
+ * Offices are their own rows rather than a flag on the member, so a term
+ * survives the person leaving it. A student who was Treasurer keeps that on
+ * their profile after they hand it over, which is the point - it is the sort
+ * of thing that ends up on a college application.
+ */
+export async function addOffice(
+  db: DB,
+  actor: Actor,
+  memberId: string,
+  input: { title: string; startYear: number; endYear?: number | null },
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const title = input.title.trim();
+  if (title.length === 0) return { ok: false, error: 'An office needs a title.' };
+
+  const [member] = await db.select().from(members).where(eq(members.id, memberId)).limit(1);
+  if (!member) return { ok: false, error: 'That member does not exist.' };
+
+  const endYear = input.endYear ?? null;
+  if (endYear !== null && endYear < input.startYear) {
+    return { ok: false, error: 'A term cannot end before it starts.' };
+  }
+
+  const id = generateId();
+
+  await writeWithAudit(
+    db,
+    actor,
+    [
+      db.insert(memberOffices).values({
+        id,
+        memberId,
+        title,
+        startYear: input.startYear,
+        endYear,
+      }),
+    ],
+    {
+      action: AUDIT_ACTION.MemberOfficeChanged,
+      targetKind: AUDIT_ENTITY_KIND.Member,
+      targetId: memberId,
+      payload: { added: true, title, startYear: input.startYear, endYear, memberName: member.name },
+    },
+  );
+
+  return { ok: true, id };
+}
+
+/** Closes a term, which is what stops someone being a current officer. */
+export async function endOffice(
+  db: DB,
+  actor: Actor,
+  officeId: string,
+  endYear: number,
+): Promise<{ ended: boolean }> {
+  const [office] = await db
+    .select()
+    .from(memberOffices)
+    .where(eq(memberOffices.id, officeId))
+    .limit(1);
+  if (!office || office.endYear !== null) return { ended: false };
+  if (endYear < office.startYear) return { ended: false };
+
+  await writeWithAudit(
+    db,
+    actor,
+    [db.update(memberOffices).set({ endYear }).where(eq(memberOffices.id, officeId))],
+    {
+      action: AUDIT_ACTION.MemberOfficeChanged,
+      targetKind: AUDIT_ENTITY_KIND.Member,
+      targetId: office.memberId,
+      diff: { endYear: { before: null, after: endYear } },
+      payload: { title: office.title, startYear: office.startYear },
+    },
+  );
+
+  return { ended: true };
+}
+
+/** For a term recorded by mistake. Ending one is the usual action. */
+export async function deleteOffice(
+  db: DB,
+  actor: Actor,
+  officeId: string,
+): Promise<{ deleted: boolean }> {
+  const [office] = await db
+    .select()
+    .from(memberOffices)
+    .where(eq(memberOffices.id, officeId))
+    .limit(1);
+  if (!office) return { deleted: false };
+
+  await writeWithAudit(
+    db,
+    actor,
+    [db.delete(memberOffices).where(eq(memberOffices.id, officeId))],
+    {
+      action: AUDIT_ACTION.MemberOfficeChanged,
+      targetKind: AUDIT_ENTITY_KIND.Member,
+      targetId: office.memberId,
+      // Kept on the row: a deleted office cannot be joined against later, and
+      // "who removed my term as Treasurer" is exactly what gets asked.
+      payload: {
+        deleted: true,
+        title: office.title,
+        startYear: office.startYear,
+        endYear: office.endYear,
+      },
+    },
+  );
+
+  return { deleted: true };
+}
+
+export async function getOffices(db: DB, memberId: string) {
+  return db
+    .select()
+    .from(memberOffices)
+    .where(eq(memberOffices.memberId, memberId))
+    .orderBy(desc(memberOffices.startYear));
 }

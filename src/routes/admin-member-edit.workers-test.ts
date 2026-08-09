@@ -115,18 +115,15 @@ describe('officers editing a profile', () => {
     expect(audit!.payload).toMatchObject({ memberName: 'Daniel Doser' });
   });
 
-  it('still cannot grant officer status by posting the field', async () => {
+  it('still cannot record a term of office, which setOfficer gates', async () => {
     const cookie = await signIn('officer@example.com', APP_ROLE.Officer);
 
-    await post(
-      '/admin/members/daniel-doser',
-      cookie,
-      editForm({ isOfficer: '1', officerTitle: 'President' }),
-    );
-
-    const row = await member();
-    expect(row.isOfficer).toBe(false);
-    expect(row.officerTitle).toBeNull();
+    const form = new FormData();
+    form.set('title', 'President');
+    form.set('startYear', '2026');
+    expect(
+      (await post('/admin/members/daniel-doser/offices', cookie, form)).status,
+    ).toBe(403);
   });
 
   it('is refused entirely to a plain member', async () => {

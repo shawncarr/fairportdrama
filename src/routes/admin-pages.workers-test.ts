@@ -52,8 +52,6 @@ async function seedFixture() {
       photoImageId: 'img-daniel',
       instagram: 'danield',
       visibility: MEMBER_VISIBILITY.Full,
-      isOfficer: true,
-      officerTitle: 'President',
       isActive: true,
     },
     // Deliberately sparse: no photo, no bio, no year, inactive, hidden.
@@ -223,8 +221,10 @@ describe('pages an admin sees', () => {
     expect(full).toContain('value="2026"');
     expect(full).toContain('Plays Percy.');
     expect(full).toContain('value="danield"');
-    expect(full).toContain('name="isOfficer"');
-    expect(full).toContain('value="President"');
+    // The checkbox became a term with a start and end year.
+    expect(full).toContain('Club offices');
+    expect(full).toContain('name="startYear"');
+    expect(full).not.toContain('name="isOfficer"');
     expect(full).toContain('Remove the photo');
     // A pending edit must warn that approving later overwrites this.
     expect(full).toContain('waiting in');

@@ -77,44 +77,29 @@ describe('adding a member', () => {
 });
 
 describe('officer status', () => {
-  it('is set when an admin asks for it', async () => {
+  // Offices moved to their own table, so a new member never arrives holding
+  // one. The create form no longer offers it at all, to anybody.
+  it('is not something the create form can set', async () => {
     const cookie = await signIn('board@example.com', APP_ROLE.Admin);
-
-    await post(
-      '/admin/members/new',
-      cookie,
-      memberForm({ isOfficer: '1', officerTitle: 'President' }),
-    );
-
-    const [row] = await roster();
-    expect(row!.isOfficer).toBe(true);
-    expect(row!.officerTitle).toBe('President');
-  });
-
-  it('is ignored when an officer posts the field by hand', async () => {
-    const cookie = await signIn('officer@example.com', APP_ROLE.Officer);
-
-    // The field is not rendered for officers, but the form is just HTML - the
-    // control has to be on the server, or a student can promote a friend by
-    // adding one input.
-    const response = await post(
-      '/admin/members/new',
-      cookie,
-      memberForm({ isOfficer: '1', officerTitle: 'President' }),
-    );
-    expect(response.status).toBe(302);
-
-    const [row] = await roster();
-    expect(row!.isOfficer).toBe(false);
-    expect(row!.officerTitle).toBeNull();
-  });
-
-  it('is not offered to an officer in the form', async () => {
-    const cookie = await signIn('officer@example.com', APP_ROLE.Officer);
     const body = await (await get('/admin/members/new', cookie)).text();
 
     expect(body).toContain('Full name');
     expect(body).not.toContain('name="isOfficer"');
+    expect(body).not.toContain('name="officerTitle"');
+  });
+
+  it('is refused to an officer even by hand, since setOfficer gates it', async () => {
+    await signIn('board@example.com', APP_ROLE.Admin);
+    const cookie = await signIn('officer@example.com', APP_ROLE.Officer);
+    await post('/admin/members/new', cookie, memberForm());
+    const [row] = await roster();
+
+    const form = new FormData();
+    form.set('title', 'President');
+    form.set('startYear', '2026');
+    expect(
+      (await post(`/admin/members/${row!.id}/offices`, cookie, form)).status,
+    ).toBe(403);
   });
 });
 

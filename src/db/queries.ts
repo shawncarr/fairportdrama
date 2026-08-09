@@ -1,9 +1,10 @@
 import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
-import { and, asc, desc, eq, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import * as schema from './schema';
 import {
   MEMBER_VISIBILITY,
   members,
+  memberOffices,
   memberRoles,
   news,
   showCast,
@@ -197,6 +198,53 @@ export async function getCrew(db: DB, showId: string) {
 
 // ---------------------------------------------------------------- members
 
+/**
+ * Formats a term the way anyone would say it: "2025-2026", or "2025-present"
+ * while it is still held.
+ */
+export const formatTerm = (startYear: number, endYear: number | null): string =>
+  `${startYear}\u2013${endYear ?? 'present'}`;
+
+export interface HeldOffice {
+  title: string;
+  startYear: number;
+  endYear: number | null;
+  term: string;
+  isCurrent: boolean;
+}
+
+const toOffice = (o: { title: string; startYear: number; endYear: number | null }): HeldOffice => ({
+  title: o.title,
+  startYear: o.startYear,
+  endYear: o.endYear,
+  term: formatTerm(o.startYear, o.endYear),
+  isCurrent: o.endYear === null,
+});
+
+/**
+ * Every office held by the given members, newest first.
+ *
+ * Fetched in one query rather than per member: the directory renders well over
+ * a hundred cards, and a query each would be a hundred round trips.
+ */
+async function officesByMember(db: DB, memberIds: string[]) {
+  if (memberIds.length === 0) return new Map<string, HeldOffice[]>();
+
+  const rows = await db
+    .select()
+    .from(memberOffices)
+    .where(inArray(memberOffices.memberId, memberIds))
+    .orderBy(desc(memberOffices.startYear));
+
+  const byMember = new Map<string, HeldOffice[]>();
+  for (const row of rows) {
+    const list = byMember.get(row.memberId) ?? [];
+    list.push(toOffice(row));
+    byMember.set(row.memberId, list);
+  }
+  return byMember;
+}
+
 export async function getActiveMembers(db: DB) {
   const rows = await db
     .select()
@@ -204,12 +252,21 @@ export async function getActiveMembers(db: DB) {
     .where(eq(members.isActive, true))
     .orderBy(asc(members.name));
 
-  return rows.map((r) => ({
-    ...toPublicMember(r),
-    grade: r.grade,
-    isOfficer: r.isOfficer,
-    officerTitle: r.officerTitle,
-  }));
+  const offices = await officesByMember(db, rows.map((r) => r.id));
+
+  return rows.map((r) => {
+    const held = offices.get(r.id) ?? [];
+    const current = held.find((o) => o.isCurrent) ?? null;
+    return {
+      ...toPublicMember(r),
+      grade: r.grade,
+      // Derived, not stored. There is no flag that can disagree with the
+      // office records.
+      isOfficer: current !== null,
+      officerTitle: current?.title ?? null,
+      offices: held,
+    };
+  });
 }
 
 /**
@@ -233,12 +290,16 @@ export async function getPublicMemberProfile(db: DB, id: string) {
     .from(memberRoles)
     .where(eq(memberRoles.memberId, id));
 
+  const held = (await officesByMember(db, [id])).get(id) ?? [];
+  const current = held.find((o) => o.isCurrent) ?? null;
+
   return {
     ...toPublicMember(row),
     grade: row.grade,
     graduationYear: row.graduationYear,
-    isOfficer: row.isOfficer,
-    officerTitle: row.officerTitle,
+    isOfficer: current !== null,
+    officerTitle: current?.title ?? null,
+    offices: held,
     roles: roles.map((r) => r.role),
   };
 }

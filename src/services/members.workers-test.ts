@@ -68,7 +68,6 @@ describe('creating a member', () => {
     expect(audit!.payload).toMatchObject({
       name: 'Daniel Doser',
       grade: 'Senior',
-      isOfficer: false,
       visibility: MEMBER_VISIBILITY.Limited,
     });
   });
