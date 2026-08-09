@@ -109,6 +109,12 @@
         "APP_ENV": "production",
         "SITE_URL": "https://fairportdrama.com",
         "CF_IMAGES_ACCOUNT_HASH": "WkmTv5FeGiLo5ACVeQNYPw",
+        // Contact form destination. A var rather than a secret - it is an
+        // address, not a credential - but it has to live here rather than in
+        // the dashboard: wrangler overwrites dashboard vars on every deploy,
+        // and silently, so the contact form would fall back to its hardcoded
+        // default with nothing to indicate mail was going nowhere.
+        "CONTACT_EMAIL": "hello@fairportdrama.com",
       },
 
       "d1_databases": [
@@ -137,7 +143,6 @@
   },
 
   // Secrets, set with `wrangler secret put <NAME> --env production`:
-  //   CONTACT_EMAIL           - contact form destination
   //   TURNSTILE_SECRET_KEY    - contact form spam check
   //   BETTER_AUTH_SECRET      - session signing
   //   GOOGLE_CLIENT_ID        - Google SSO
