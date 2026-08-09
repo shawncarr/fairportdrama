@@ -1,5 +1,5 @@
 import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
-import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, or, sql } from 'drizzle-orm';
 import * as schema from './schema';
 import {
   MEMBER_VISIBILITY,
@@ -222,18 +222,24 @@ const toOffice = (o: { title: string; startYear: number; endYear: number | null 
 });
 
 /**
- * Every office held by the given members, newest first.
+ * Every office held by members currently on the roster, newest first.
  *
- * Fetched in one query rather than per member: the directory renders well over
- * a hundred cards, and a query each would be a hundred round trips.
+ * Joined rather than filtered by a list of member ids. Binding one parameter
+ * per member looked fine locally and failed on D1, which caps how many a
+ * single statement may carry - the roster is 128 people, so the directory
+ * broke while a single profile, binding one id, did not.
  */
-async function officesByMember(db: DB, memberIds: string[]) {
-  if (memberIds.length === 0) return new Map<string, HeldOffice[]>();
-
+async function officesForActiveMembers(db: DB) {
   const rows = await db
-    .select()
+    .select({
+      memberId: memberOffices.memberId,
+      title: memberOffices.title,
+      startYear: memberOffices.startYear,
+      endYear: memberOffices.endYear,
+    })
     .from(memberOffices)
-    .where(inArray(memberOffices.memberId, memberIds))
+    .innerJoin(members, eq(members.id, memberOffices.memberId))
+    .where(eq(members.isActive, true))
     .orderBy(desc(memberOffices.startYear));
 
   const byMember = new Map<string, HeldOffice[]>();
@@ -245,6 +251,16 @@ async function officesByMember(db: DB, memberIds: string[]) {
   return byMember;
 }
 
+/** One member's offices. A single bound id, so no list is involved. */
+async function officesForMember(db: DB, memberId: string): Promise<HeldOffice[]> {
+  const rows = await db
+    .select()
+    .from(memberOffices)
+    .where(eq(memberOffices.memberId, memberId))
+    .orderBy(desc(memberOffices.startYear));
+  return rows.map(toOffice);
+}
+
 export async function getActiveMembers(db: DB) {
   const rows = await db
     .select()
@@ -252,7 +268,7 @@ export async function getActiveMembers(db: DB) {
     .where(eq(members.isActive, true))
     .orderBy(asc(members.name));
 
-  const offices = await officesByMember(db, rows.map((r) => r.id));
+  const offices = await officesForActiveMembers(db);
 
   return rows.map((r) => {
     const held = offices.get(r.id) ?? [];
@@ -290,7 +306,7 @@ export async function getPublicMemberProfile(db: DB, id: string) {
     .from(memberRoles)
     .where(eq(memberRoles.memberId, id));
 
-  const held = (await officesByMember(db, [id])).get(id) ?? [];
+  const held = await officesForMember(db, id);
   const current = held.find((o) => o.isCurrent) ?? null;
 
   return {
