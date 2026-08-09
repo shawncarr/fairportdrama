@@ -34,7 +34,8 @@ export const baseLayout = jsxRenderer(({ children, ...props }, c) => {
 
   const siteUrl = c.env.SITE_URL;
   const canonical = new URL(new URL(c.req.url).pathname, siteUrl).toString();
-  const fullImageUrl = new URL(image, siteUrl).toString();
+  // Omitted rather than emitted as a broken URL when there is no image.
+  const fullImageUrl = image ? new URL(image, siteUrl).toString() : null;
   const fullTitle = `${title} | ${SITE_NAME}`;
 
   return (
@@ -53,7 +54,7 @@ export const baseLayout = jsxRenderer(({ children, ...props }, c) => {
         <meta property="og:url" content={canonical} />
         <meta property="og:title" content={fullTitle} />
         <meta property="og:description" content={description} />
-        <meta property="og:image" content={fullImageUrl} />
+        {fullImageUrl && <meta property="og:image" content={fullImageUrl} />}
         <meta property="og:site_name" content={SITE_NAME} />
         {props.publishedDate && (
           <meta property="article:published_time" content={props.publishedDate} />
@@ -62,11 +63,14 @@ export const baseLayout = jsxRenderer(({ children, ...props }, c) => {
           <meta property="article:modified_time" content={props.modifiedDate} />
         )}
 
-        <meta property="twitter:card" content="summary_large_image" />
+        <meta
+          property="twitter:card"
+          content={fullImageUrl ? 'summary_large_image' : 'summary'}
+        />
         <meta property="twitter:url" content={canonical} />
         <meta property="twitter:title" content={fullTitle} />
         <meta property="twitter:description" content={description} />
-        <meta property="twitter:image" content={fullImageUrl} />
+        {fullImageUrl && <meta property="twitter:image" content={fullImageUrl} />}
 
         <script type="application/ld+json">
           {raw(JSON.stringify(organizationSchema(siteUrl)))}

@@ -536,3 +536,32 @@ describe('the legal pages Google requires', () => {
     expect(await body('/terms')).toContain('Nothing is sold here');
   });
 });
+
+describe('social sharing tags', () => {
+  it('omits og:image rather than pointing at a file that does not exist', async () => {
+    const html = await body('/about/boosters');
+
+    // The Astro site defaulted to /images/og-default.jpg, which was eleven
+    // bytes of the text "placeholder". A broken thumbnail is worse than none.
+    expect(html).not.toContain('og-default');
+    expect(html).not.toContain('property="og:image"');
+    // A card with no image should say so, or the network reserves space for one.
+    expect(html).toContain('content="summary"');
+  });
+
+  it('still carries the title, description, and canonical URL', async () => {
+    const html = await body('/about/boosters');
+    expect(html).toContain('property="og:title"');
+    expect(html).toContain('property="og:description"');
+    expect(html).toContain('rel="canonical"');
+  });
+
+  it('uses a show’s own artwork when it has some', async () => {
+    await seedMembers();
+    await seedShow({ closed: false, featured: true });
+
+    const html = await body('/shows/lightning-thief');
+    expect(html).toContain('property="og:image"');
+    expect(html).toContain('content="summary_large_image"');
+  });
+});

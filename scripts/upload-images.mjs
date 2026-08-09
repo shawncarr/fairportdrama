@@ -133,9 +133,36 @@ const collect = () => {
   return { found, vectors };
 };
 
+/**
+ * Whether the bytes really are an image.
+ *
+ * An extension is not evidence. The archive contains an og-default.jpg that is
+ * eleven bytes of the ASCII text "placeholder", which Cloudflare rejects with
+ * a content-type error that reads as though the upload code is at fault. This
+ * is the same check the application applies to admin uploads.
+ */
+const looksLikeImage = (b) =>
+  (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) ||
+  (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) ||
+  (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) ||
+  (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+    b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50);
+
+const CONTENT_TYPES = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+};
+
 const upload = async (abs) => {
+  const bytes = fs.readFileSync(abs);
+  const type = CONTENT_TYPES[path.extname(abs).toLowerCase()] ?? 'application/octet-stream';
+
   const body = new FormData();
-  body.append('file', new Blob([fs.readFileSync(abs)]), path.basename(abs));
+  // The type is declared rather than left to be inferred from the filename.
+  body.append('file', new Blob([bytes], { type }), path.basename(abs));
   // requireSignedURLs=false: these are public site images.
   body.append('requireSignedURLs', 'false');
 
@@ -165,7 +192,13 @@ const { found, vectors } = collect();
 const LOCAL_ID = /^local-/;
 const isUploaded = (key) => Boolean(manifest[key]) && !LOCAL_ID.test(manifest[key]);
 
-const pending = found.filter((f) => !isUploaded(f.key));
+const notImages = found.filter((f) => {
+  const head = fs.readFileSync(f.abs).subarray(0, 12);
+  return !looksLikeImage(head);
+});
+const notImageKeys = new Set(notImages.map((f) => f.key));
+
+const pending = found.filter((f) => !isUploaded(f.key) && !notImageKeys.has(f.key));
 const shimEntries = found.filter((f) => LOCAL_ID.test(manifest[f.key] ?? '')).length;
 
 console.log(`Found ${found.length} raster images (${pending.length} not yet uploaded)`);
@@ -173,6 +206,15 @@ if (shimEntries > 0) {
   console.log(
     `  ${shimEntries} currently hold local development ids and will be replaced.`,
   );
+}
+if (notImages.length > 0) {
+  console.log(
+    `\n${notImages.length} file(s) skipped - the extension says image, the bytes do not:`,
+  );
+  for (const f of notImages) {
+    console.log(`  ${f.key} (${fs.statSync(f.abs).size} bytes)`);
+  }
+  console.log('  Replace them with real images, or leave them out.');
 }
 if (vectors.length > 0) {
   console.log(
