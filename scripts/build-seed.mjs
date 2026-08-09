@@ -31,6 +31,20 @@ const manifest = fs.existsSync(manifestPath)
   ? JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
   : {};
 
+// The manifest is written by whichever image loader ran last: the Cloudflare
+// uploader, or the local KV shim. Seeding production from shim ids would give
+// every image column a value that resolves nowhere, so say so rather than let
+// it through quietly.
+const localIds = Object.values(manifest).filter((id) => String(id).startsWith('local-'));
+if (localIds.length > 0) {
+  console.warn(
+    `\nNOTE: ${localIds.length} of ${Object.keys(manifest).length} image ids are local` +
+      ' development ids.\n' +
+      'This seed is only valid for the local database. Run `npm run images:upload`\n' +
+      'first if you are seeding production.\n',
+  );
+}
+
 // ---------------------------------------------------------------- helpers
 
 const q = (v) => {

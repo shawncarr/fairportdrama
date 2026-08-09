@@ -2,7 +2,11 @@
 /**
  * Uploads content images to Cloudflare Images and writes seed/image-manifest.json.
  *
- *   CF_IMAGES_ACCOUNT_ID=... CF_IMAGES_API_TOKEN=... node scripts/upload-images.mjs [--dry-run]
+ *   npm run images:upload [-- --dry-run]
+ *
+ * Credentials come from .dev.vars, or from the environment if set there
+ * instead. They are only ever needed here: the deployed Worker uploads through
+ * the IMAGES binding and holds no token at all.
  *
  * The token needs the "Cloudflare Images: Edit" permission. Requires an Images
  * paid plan, since this stores images rather than only transforming them.
@@ -28,13 +32,53 @@ const SOURCE = '../fairportdrama/src/content';
 const PUBLIC_SOURCE = '../fairportdrama/public';
 const MANIFEST = 'seed/image-manifest.json';
 
+/**
+ * Reads .dev.vars, which is where every other local credential in this project
+ * lives. It is a wrangler file, so plain `node` knows nothing about it - this
+ * script has to load it itself rather than assume the shell did.
+ *
+ * A value already in the environment wins, so a one-off override still works.
+ */
+function loadDevVars(file = '.dev.vars') {
+  if (!fs.existsSync(file)) return;
+  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0 || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    // Tolerate quoting, which wrangler accepts.
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+}
+
+loadDevVars();
+
 const ACCOUNT = process.env.CF_IMAGES_ACCOUNT_ID;
 const TOKEN = process.env.CF_IMAGES_API_TOKEN;
+const PLACEHOLDER = /^(dev-)?placeholder/i;
 
-if (!DRY_RUN && (!ACCOUNT || !TOKEN)) {
+if (!DRY_RUN && (!ACCOUNT || !TOKEN || PLACEHOLDER.test(ACCOUNT) || PLACEHOLDER.test(TOKEN))) {
+  const missing = [
+    !ACCOUNT || PLACEHOLDER.test(ACCOUNT) ? 'CF_IMAGES_ACCOUNT_ID' : null,
+    !TOKEN || PLACEHOLDER.test(TOKEN) ? 'CF_IMAGES_API_TOKEN' : null,
+  ].filter(Boolean);
+
   console.error(
-    'Missing CF_IMAGES_ACCOUNT_ID or CF_IMAGES_API_TOKEN.\n' +
-      'Re-run with --dry-run to see what would be uploaded.',
+    `Missing or placeholder: ${missing.join(' and ')}.\n\n` +
+      'Set them in .dev.vars (gitignored):\n' +
+      '  CF_IMAGES_ACCOUNT_ID=...\n' +
+      '  CF_IMAGES_API_TOKEN=...\n\n' +
+      'The token needs Account -> Cloudflare Images -> Edit, from\n' +
+      'https://dash.cloudflare.com/profile/api-tokens\n\n' +
+      'Re-run with --dry-run to see what would be uploaded without them.',
   );
   process.exit(1);
 }
@@ -110,9 +154,26 @@ const upload = async (abs) => {
 };
 
 const { found, vectors } = collect();
-const pending = found.filter((f) => !manifest[f.key]);
+
+/**
+ * The manifest is shared with load-local-images.mjs, which fills it with ids
+ * for the KV shim. Those are not Cloudflare ids, so an entry holding one means
+ * the file still needs uploading - treating any existing entry as done made
+ * this script report "0 not yet uploaded" against a manifest full of local
+ * ids, and upload nothing.
+ */
+const LOCAL_ID = /^local-/;
+const isUploaded = (key) => Boolean(manifest[key]) && !LOCAL_ID.test(manifest[key]);
+
+const pending = found.filter((f) => !isUploaded(f.key));
+const shimEntries = found.filter((f) => LOCAL_ID.test(manifest[f.key] ?? '')).length;
 
 console.log(`Found ${found.length} raster images (${pending.length} not yet uploaded)`);
+if (shimEntries > 0) {
+  console.log(
+    `  ${shimEntries} currently hold local development ids and will be replaced.`,
+  );
+}
 if (vectors.length > 0) {
   console.log(
     `\n${vectors.length} vector image(s) left as static assets rather than uploaded:`,
