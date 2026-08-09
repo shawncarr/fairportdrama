@@ -91,7 +91,7 @@ adminRoutes.get('/admin/sign-in', (c) => {
         </p>
 
         <a
-          href={`/api/auth/sign-in/social?provider=google&callbackURL=${encodeURIComponent(next)}`}
+          href={`/admin/sign-in/google?next=${encodeURIComponent(next)}`}
           class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-neutral-300 hover:bg-neutral-50 transition-colors font-medium"
         >
           Continue with Google
@@ -132,6 +132,42 @@ adminRoutes.get('/admin/sign-in', (c) => {
     </div>,
     { title: 'Sign in' },
   );
+});
+
+/**
+ * Starts Google sign-in.
+ *
+ * Better Auth's /sign-in/social endpoint is POST-only and answers with JSON
+ * carrying the provider URL - its client library then navigates there. This
+ * site ships no client JavaScript on the sign-in page, so a plain link to that
+ * endpoint 404s and a plain form POST would render the JSON as text.
+ *
+ * Doing the call here turns it back into an ordinary link. The Set-Cookie
+ * headers must be forwarded with it: the call issues the PKCE verifier and
+ * state cookies, and dropping them makes Google's callback fail a state check
+ * that is genuinely protecting against a forged callback.
+ */
+adminRoutes.get('/admin/sign-in/google', async (c) => {
+  const next = c.req.query('next') ?? '/admin';
+
+  const { headers, response } = await createAuth(c.env).api.signInSocial({
+    body: { provider: 'google', callbackURL: next },
+    headers: c.req.raw.headers,
+    returnHeaders: true,
+  });
+
+  const url = (response as { url?: string } | null)?.url;
+  if (!url) {
+    return c.redirect(
+      `/admin/sign-in?error=${encodeURIComponent('Google sign-in is unavailable. Try the email link instead.')}`,
+      302,
+    );
+  }
+
+  const out = new Headers();
+  for (const cookie of headers.getSetCookie()) out.append('set-cookie', cookie);
+  out.set('location', url);
+  return new Response(null, { status: 302, headers: out });
 });
 
 adminRoutes.post('/admin/sign-in', async (c) => {

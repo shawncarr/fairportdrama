@@ -410,6 +410,36 @@ describe('sign in and out', () => {
     expect(html).toContain('by invitation');
   });
 
+  it('starts Google sign-in from a plain link, carrying the state cookie', async () => {
+    // The button used to point straight at Better Auth's /sign-in/social,
+    // which is POST-only - so it 404'd, and nothing caught it because no test
+    // followed the link. This route does the call server-side and redirects.
+    const res = await get('/admin/sign-in/google?next=%2Fadmin');
+
+    expect(res.status).toBe(302);
+
+    const target = new URL(res.headers.get('location')!);
+    expect(target.host).toBe('accounts.google.com');
+    // The value Google matches against its registered list; a mismatch here is
+    // the difference between working and redirect_uri_mismatch.
+    expect(target.searchParams.get('redirect_uri')).toContain(
+      '/api/auth/callback/google',
+    );
+    expect(target.searchParams.get('scope')).toBe('email profile openid');
+    expect(target.searchParams.get('client_id')).toBeTruthy();
+
+    // Without the state cookie the callback fails a check that exists to
+    // reject a forged one.
+    const cookies = res.headers.getSetCookie();
+    expect(cookies.some((c) => c.includes('better-auth.state'))).toBe(true);
+  });
+
+  it('the sign-in page links to that route, not to the POST-only endpoint', async () => {
+    const html = await body('/admin/sign-in', '');
+    expect(html).toContain('/admin/sign-in/google');
+    expect(html).not.toContain('/api/auth/sign-in/social');
+  });
+
   it('redirects an already signed-in visitor away from sign-in', async () => {
     const cookie = await signIn('board@example.com', APP_ROLE.Admin);
     const res = await get('/admin/sign-in?next=/admin/members', cookie);
