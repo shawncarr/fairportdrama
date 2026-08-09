@@ -92,6 +92,21 @@
       "name": "fairport-drama-next",
       "workers_dev": true,
 
+      // The live site. A hostname belongs to exactly one Worker, so this can
+      // only be deployed once fairportdrama.com has been released from the
+      // old `fairport-drama` Worker - the deploy fails otherwise rather than
+      // taking the domain silently.
+      //
+      // To roll back: remove this block, redeploy, and re-add the domain to
+      // `fairport-drama` in the dashboard. The old Worker is untouched by any
+      // of this and still serves the Astro build.
+      "routes": [
+        {
+          "pattern": "fairportdrama.com",
+          "custom_domain": true,
+        },
+      ],
+
       "assets": {
         "directory": "./public",
         "binding": "ASSETS",
