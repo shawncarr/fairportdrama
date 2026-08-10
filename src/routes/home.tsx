@@ -158,39 +158,100 @@ home.get('/', async (c) => {
       )}
 
       {/*
-        One line saying what this site is, directly under the hero.
+        What this website is, immediately under the hero.
 
-        There is a fuller explanation further down, but Google's OAuth review
-        refused verification for a home page that "does not explain the purpose
-        of your app" while that section was already live - below the news, the
-        past shows and the sponsors, which is further than a reviewer reads.
-        This is the same claim where it cannot be missed, and it is worth
-        saying to students anyway.
+        Sized and placed deliberately. Google's OAuth review refused
+        verification for a home page that "does not explain the purpose of your
+        app" twice while a shorter version of this was live - first at the
+        bottom of the page, then as a one-line band. A reviewer arriving at the
+        root of a drama club's site sees show promotion and stops, so the
+        explanation has to be the first thing after the hero and has to be
+        substantial enough to read as the answer.
+
+        It earns its place for visitors too: nothing else on the site says who
+        publishes it or how a student gets an account.
       */}
-      <section class="bg-white border-b border-neutral-200">
-        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-5 flex flex-col sm:flex-row sm:items-center gap-x-6 gap-y-2 justify-between">
-          <p class="text-sm text-neutral-700">
-            <strong class="text-neutral-900">
-              The official website of the Fairport High School Drama Club
-            </strong>{' '}
-            in Fairport, New York - productions, cast and crew, news, and ways to support
-            student theater. Published by the Drama Club Boosters, a volunteer parent
-            organization, and kept up to date by the club itself.
+      <section class="py-14 lg:py-20 bg-white border-b border-neutral-200">
+        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <h2 class="font-display text-3xl lg:text-4xl font-bold text-neutral-900 mb-4">
+            About This Website
+          </h2>
+          <p class="text-lg text-neutral-700 max-w-3xl leading-relaxed mb-4">
+            <strong>fairportdrama.com is the official website of the Fairport High School
+            Drama Club</strong> in Fairport, New York. It is published by the Drama Club
+            Boosters, a volunteer parent organization supporting student theater, and it is
+            written and kept up to date by the club&rsquo;s own students and volunteers
+            rather than by an outside webmaster.
           </p>
-          <p class="flex flex-wrap gap-x-5 gap-y-1 text-sm shrink-0">
+          <p class="text-neutral-700 max-w-3xl leading-relaxed mb-10">
+            Anyone can read the site without an account. Behind it is a members&rsquo; area
+            where the club maintains everything you see here.
+          </p>
+
+          <div class="grid gap-8 md:grid-cols-3 mb-10">
+            <div>
+              <h3 class="font-display text-lg font-semibold text-neutral-900 mb-2">
+                What you will find here
+              </h3>
+              <p class="text-sm text-neutral-600 leading-relaxed">
+                Current and past productions, performance dates and ticket links, cast and
+                crew for every show, club news and audition notices, member profiles,
+                sponsors, and spirit wear.
+              </p>
+            </div>
+
+            <div>
+              <h3 class="font-display text-lg font-semibold text-neutral-900 mb-2">
+                Run by the club itself
+              </h3>
+              <p class="text-sm text-neutral-600 leading-relaxed">
+                Cast and crew, student officers, and the adults who help run the club sign
+                in to post news, build cast and crew lists, upload production photographs,
+                maintain the member roster, and edit their own profile. Signing in is by
+                Google account or an emailed link, and access is by invitation only -
+                signing in does not create an account.
+              </p>
+            </div>
+
+            <div>
+              <h3 class="font-display text-lg font-semibold text-neutral-900 mb-2">
+                Students control their own listing
+              </h3>
+              <p class="text-sm text-neutral-600 leading-relaxed">
+                Most of our members are minors, so every member profile starts private: a
+                first name and last initial, with no photograph and no page of their own.
+                Each student decides for themselves whether to appear in full, and can
+                change it back at any time.
+              </p>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap gap-x-6 gap-y-2 items-center">
             <a
               href="/about/website"
-              class="text-primary-600 hover:text-primary-700 font-medium whitespace-nowrap"
+              class="inline-flex items-center justify-center px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-lg transition-colors"
             >
-              About this site
+              More about this website
+            </a>
+            <a
+              href="/admin/sign-in"
+              class="text-primary-600 hover:text-primary-700 font-medium"
+            >
+              Member sign in
             </a>
             <a
               href="/about/boosters"
-              class="text-primary-600 hover:text-primary-700 font-medium whitespace-nowrap"
+              class="text-primary-600 hover:text-primary-700 font-medium"
             >
-              Boosters
+              Drama Club Boosters
             </a>
-          </p>
+            <a href="/privacy" class="text-primary-600 hover:text-primary-700 font-medium">
+              Privacy policy
+            </a>
+            <a href="/terms" class="text-primary-600 hover:text-primary-700 font-medium">
+              Terms of use
+            </a>
+          </div>
         </div>
       </section>
 
@@ -298,62 +359,6 @@ home.get('/', async (c) => {
           </div>
         </section>
       )}
-
-      {/*
-        Describes the members' area on the public home page.
-
-        Partly for students, who otherwise have no way of knowing the site is
-        something they can sign in to. Partly for Google's OAuth review, which
-        requires the home page registered against the client to be reachable
-        without signing in and to say what the application does - the rest of
-        this page is about the club, not about the software.
-      */}
-      <section class="py-16 lg:py-24 bg-neutral-50">
-        <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
-          <h2 class="font-display text-3xl lg:text-4xl font-bold text-neutral-900 mb-4">
-            For Club Members
-          </h2>
-          <p class="text-neutral-700 mb-4 leading-relaxed">
-            This website is maintained by the Fairport High School Drama Club itself. Cast
-            and crew, student officers, and the adults who help run the club sign in to keep
-            it current - posting news and audition notices, building cast and crew lists,
-            adding production photos, and editing their own member profile.
-          </p>
-          <p class="text-neutral-700 mb-6 leading-relaxed">
-            Members sign in with their school Google account or with a link sent to their
-            email address. <strong>Access is by invitation only</strong>: signing in with
-            Google does not create an account, and a Boosters board member has to invite you
-            first. Students choose for themselves whether their full name, photograph, and
-            biography appear publicly.
-          </p>
-          <div class="flex flex-wrap gap-4 items-center">
-            <a
-              href="/admin/sign-in"
-              class="inline-flex items-center justify-center px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-lg transition-colors"
-            >
-              Member sign in
-            </a>
-            <a href="/privacy" class="text-primary-600 hover:text-primary-700 font-medium">
-              Privacy policy
-            </a>
-            <a href="/terms" class="text-primary-600 hover:text-primary-700 font-medium">
-              Terms of use
-            </a>
-            <a
-              href="/about/website"
-              class="text-primary-600 hover:text-primary-700 font-medium"
-            >
-              How this site works
-            </a>
-            <a
-              href="/about/contact"
-              class="text-primary-600 hover:text-primary-700 font-medium"
-            >
-              Request access
-            </a>
-          </div>
-        </div>
-      </section>
 
       <section class="py-16 lg:py-24 bg-gradient-to-r from-primary-600 to-secondary-700 text-white">
         <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 text-center">

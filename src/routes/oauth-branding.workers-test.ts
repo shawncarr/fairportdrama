@@ -29,55 +29,60 @@ describe('the registered home page', () => {
     expect(res.headers.get('location')).toBeNull();
   });
 
-  it('explains what the application is for, not only what the club is', async () => {
+  it('explains what the site is, above everything but the hero', async () => {
     const body = await home();
 
-    expect(body).toContain('For Club Members');
-    expect(body).toMatch(/sign in/i);
-    expect(body).toContain('invitation only');
+    // Verification was refused twice for a home page that "does not explain
+    // the purpose of your app" - first with the explanation at the bottom of
+    // the page, then with it as a one-line band. Position and substance are
+    // both the fix, so both are asserted.
+    const about = body.indexOf('About This Website');
+    expect(about).toBeGreaterThan(-1);
+
+    for (const later of ['Latest News', 'Never Miss a Show']) {
+      const at = body.indexOf(later);
+      if (at > -1) expect(about, `${later} should come after`).toBeLessThan(at);
+    }
   });
 
-  it('says what the site is above the news, not only at the bottom', async () => {
+  it('names the site and who publishes it', async () => {
     const body = await home();
 
-    // Verification was refused for a home page that "does not explain the
-    // purpose of your app" while the fuller section was already live - it sat
-    // below the news, past shows and sponsors. Position is the fix.
-    const statement = body.indexOf('The official website of the Fairport High School');
-    expect(statement).toBeGreaterThan(-1);
-
-    const fullSection = body.indexOf('For Club Members');
-    expect(statement).toBeLessThan(fullSection);
-  });
-
-  it('names who publishes it, and links to them', async () => {
-    const body = await home();
-
+    expect(body).toContain('official website of the Fairport High School');
     expect(body).toContain('Drama Club Boosters');
     expect(body).toContain('volunteer parent organization');
-    expect(body).toContain('href="/about/boosters"');
   });
 
-  it('links to the page that describes the application in full', async () => {
-    expect(await home()).toContain('href="/about/website"');
-  });
-
-  it('says how people sign in, which is what the OAuth client is used for', async () => {
-    expect(await home()).toMatch(/Google account/);
-  });
-
-  it('links to the privacy policy and terms from the home page', async () => {
+  it('says what the members area does, which is what the OAuth client is for', async () => {
     const body = await home();
 
+    expect(body).toContain('Run by the club itself');
+    expect(body).toContain('Google account');
+    expect(body).toContain('invitation only');
+    expect(body).toContain('does not create an account');
+  });
+
+  it('says student profiles start private', async () => {
+    expect(await home()).toContain('starts private');
+  });
+
+  it('describes it once, not in two competing places', async () => {
+    const body = await home();
+
+    // There used to be a band under the hero and a fuller section near the
+    // bottom saying the same thing differently.
+    expect((body.match(/About This Website/g) ?? []).length).toBe(1);
+    expect(body).not.toContain('For Club Members');
+  });
+
+  it('links to the fuller page, to sign-in, and to the policies', async () => {
+    const body = await home();
+
+    expect(body).toContain('href="/about/website"');
+    expect(body).toContain('href="/admin/sign-in"');
+    expect(body).toContain('href="/about/boosters"');
     expect(body).toContain('href="/privacy"');
     expect(body).toContain('href="/terms"');
-  });
-
-  it('offers a way in, and a way to ask for access', async () => {
-    const body = await home();
-
-    expect(body).toContain('href="/admin/sign-in"');
-    expect(body).toContain('href="/about/contact"');
   });
 });
 

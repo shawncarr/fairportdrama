@@ -106,7 +106,7 @@ describe('the site root, which is the other candidate', () => {
   it('is also public and also explains the members area', async () => {
     const body = await page('/');
 
-    expect(body).toContain('For Club Members');
+    expect(body).toContain('About This Website');
     expect(body).toContain('invitation only');
   });
 });
