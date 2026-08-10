@@ -197,6 +197,11 @@ home.get('/', async (c) => {
             written and kept up to date by the club&rsquo;s own students and volunteers
             rather than by an outside webmaster.
           </p>
+          <p class="text-neutral-700 max-w-3xl leading-relaxed mb-10">
+            Anyone can read it without an account. Behind it is a members&rsquo; area where
+            the club maintains everything you see here.
+          </p>
+
           <div class="grid gap-8 md:grid-cols-3 mb-10">
             <div>
               <h3 class="font-display text-lg font-semibold text-neutral-900 mb-2">
