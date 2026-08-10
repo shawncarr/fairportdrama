@@ -154,14 +154,27 @@ describe('linking a member profile', () => {
     expect((await db().select().from(user).where(eq(user.id, id)))[0]!.memberId).toBeNull();
   });
 
-  it('does not offer an already-linked member in the dropdown', async () => {
+  it('does not offer an already-linked member in the shared list', async () => {
     const cookie = await signIn('board@example.com', APP_ROLE.Admin);
     await signIn('a@example.com', APP_ROLE.Member, 'daniel-doser');
     const body = await (await get('/admin/accounts', cookie)).text();
 
-    // Ariana is free, Daniel is taken - the form should not offer a choice the
-    // service will reject.
-    expect(body).toContain('ari-toner');
-    expect(body.match(/value="daniel-doser"/g) ?? []).toHaveLength(1);
+    const datalist = body.slice(body.indexOf('<datalist'), body.indexOf('</datalist>'));
+
+    // Ariana is free, Daniel is taken - the field should not offer a choice
+    // the service will reject.
+    expect(datalist).toContain('Ariana Toner');
+    expect(datalist).not.toContain('Daniel Doser');
+  });
+
+  it('offers the member list once for the whole page, not once per account', async () => {
+    const cookie = await signIn('board@example.com', APP_ROLE.Admin);
+    await signIn('a@example.com', APP_ROLE.Member);
+    await signIn('b@example.com', APP_ROLE.Member);
+    const body = await (await get('/admin/accounts', cookie)).text();
+
+    // Re-rendering it per row made the page O(accounts x members).
+    expect((body.match(/<datalist /g) ?? []).length).toBe(1);
+    expect((body.match(/Ariana Toner/g) ?? []).length).toBe(1);
   });
 });

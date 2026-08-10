@@ -526,3 +526,49 @@ export async function advanceGrades(
 
   return { ok: true, advanced, graduated };
 }
+
+// ---------------------------------------------------- resolving a typed name
+
+export type ResolveMemberResult =
+  | { ok: true; id: string | null }
+  | { ok: false; error: string };
+
+/**
+ * Turns what somebody typed into a member id.
+ *
+ * The accounts page offers one shared datalist rather than a dropdown per row,
+ * so the field carries free text and has to be resolved here. An exact id wins,
+ * then an exact name - and a name held by two people is refused rather than
+ * guessed, because guessing links a student's account to somebody else's
+ * profile and the only sign of it is on that other student's page.
+ */
+export async function resolveMemberRef(
+  db: DB,
+  typed: string,
+): Promise<ResolveMemberResult> {
+  const value = typed.trim();
+  if (value.length === 0) return { ok: true, id: null };
+
+  const roster = await db
+    .select({ id: members.id, name: members.name })
+    .from(members)
+    .where(eq(members.isActive, true));
+
+  const byId = roster.find((m) => m.id === value);
+  if (byId) return { ok: true, id: byId.id };
+
+  const folded = value.toLowerCase();
+  const byName = roster.filter((m) => m.name.toLowerCase() === folded);
+
+  if (byName.length === 1) return { ok: true, id: byName[0]!.id };
+  if (byName.length > 1) {
+    return {
+      ok: false,
+      error: `More than one active member is called ${value}. Use their profile id instead: ${byName
+        .map((m) => m.id)
+        .join(', ')}.`,
+    };
+  }
+
+  return { ok: false, error: `No active member matches "${value}".` };
+}

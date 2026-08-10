@@ -6,6 +6,13 @@ import {
   RosterFilters,
   rosterRowAttrs,
 } from '~/components/RosterFilter';
+import {
+  AccountsFilter,
+  AccountsFilterScript,
+  InvitesFilter,
+  accountRowAttrs,
+  inviteRowAttrs,
+} from '~/components/AccountsFilter';
 import { getDb, getGallery, getPerformances } from '~/db/queries';
 import {
   members,
@@ -39,7 +46,13 @@ import { displayName } from '~/lib/member-display';
 import { IMAGE_VARIANT, MAX_IMAGE_BYTES, uploadImage, type ImageStore } from '~/lib/images';
 import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import { writeWithAudit } from '~/lib/audit/write';
-import { createInvite, inviteStatus, revokeInvite } from '~/services/invites';
+import {
+  createInvite,
+  inviteStatus,
+  planBulkInvites,
+  revokeInvite,
+  sendBulkInvites,
+} from '~/services/invites';
 import { assignRole, linkMember, revokeAccess } from '~/services/accounts';
 import {
   countSubscribers,
@@ -69,6 +82,7 @@ import {
   getOffices,
   isGrade,
   previewAdvanceGrades,
+  resolveMemberRef,
   reactivateMember,
   removeMemberInformation,
   updateMember,
@@ -2195,7 +2209,7 @@ adminRoutes.get('/admin/accounts', requirePermission('account', 'invite'), async
   const db = getDb(c.env.DB);
 
   const [allInvites, accounts, activeMembers] = await Promise.all([
-    db.select().from(invites).orderBy(desc(invites.createdAt)).limit(100),
+    db.select().from(invites).orderBy(desc(invites.createdAt)),
     db
       .select({
         id: user.id,
@@ -2213,26 +2227,21 @@ adminRoutes.get('/admin/accounts', requirePermission('account', 'invite'), async
       .orderBy(members.name),
   ]);
 
-  // Members already claimed by another account, so the link dropdown cannot
-  // offer a choice the service will refuse. One account per member.
+  // Members already claimed by another account. One account per member, so a
+  // name already taken is not offered.
   const claimed = new Map(
     accounts.filter((a) => a.memberId).map((a) => [a.memberId as string, a.id]),
   );
-  const linkableFor = (currentMemberId: string | null) =>
-    activeMembers.filter((m) => !claimed.has(m.id) || m.id === currentMemberId);
+  const memberName = new Map(activeMembers.map((m) => [m.id, m.name]));
 
   const error = c.req.query('error');
   const sent = c.req.query('sent');
+  const bulk = c.req.query('bulk');
+  const bulkFailed = c.req.query('bulkFailed');
 
   return c.render(
     <div class="space-y-8">
       <h1 class="font-display text-2xl font-bold text-neutral-900">Accounts</h1>
-
-      {c.req.query('error') && (
-        <p class="rounded-lg bg-red-50 text-red-800 text-sm px-4 py-3 ring-1 ring-red-200">
-          {c.req.query('error')}
-        </p>
-      )}
 
       {error && (
         <p class="rounded-lg bg-red-50 text-red-800 text-sm px-4 py-3 ring-1 ring-red-200">
@@ -2250,8 +2259,253 @@ adminRoutes.get('/admin/accounts', requirePermission('account', 'invite'), async
           sign in with that address; you may want to tell them directly.
         </p>
       )}
+      {bulk && (
+        <p class="rounded-lg bg-green-50 text-green-800 text-sm px-4 py-3 ring-1 ring-green-200">
+          Created {bulk} invitation{bulk === '1' ? '' : 's'}.
+          {bulkFailed && Number(bulkFailed) > 0 && (
+            <>
+              {' '}
+              <strong>{bulkFailed}</strong> could not be emailed - those people can still
+              sign in, but nobody has told them so.
+            </>
+          )}
+        </p>
+      )}
 
-      <section class="bg-white rounded-xl ring-1 ring-neutral-200 p-6">
+      {/*
+        One datalist for the whole page, referenced by every row's input. The
+        member list used to be re-rendered as a dropdown inside each account
+        card, which made the page O(accounts x members): at eighty-five
+        accounts and a hundred and twenty-eight members that was eleven
+        thousand option elements and 778 KB of HTML.
+      */}
+      <datalist id="member-options">
+        {activeMembers
+          .filter((m) => !claimed.has(m.id))
+          .map((m) => (
+            <option value={m.name}>{m.grade}</option>
+          ))}
+      </datalist>
+
+      <InviteSection members={activeMembers.length} />
+
+      <section>
+        <div class="flex items-baseline justify-between gap-4 mb-3">
+          <h2 class="font-display font-semibold text-neutral-900">Invitations</h2>
+          <p class="text-sm text-neutral-500">
+            <span data-invites-shown>{allInvites.length}</span> of {allInvites.length}
+          </p>
+        </div>
+
+        {allInvites.length === 0 ? (
+          <p class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 text-neutral-600">
+            No invitations yet.
+          </p>
+        ) : (
+          <>
+            <InvitesFilter roles={ROLE_CHOICES} />
+            <div class="bg-white rounded-xl ring-1 ring-neutral-200 overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-neutral-50 text-left">
+                  <tr>
+                    <th class="px-4 py-3 font-medium text-neutral-600">Email</th>
+                    <th class="px-4 py-3 font-medium text-neutral-600">Role</th>
+                    <th class="px-4 py-3 font-medium text-neutral-600">Profile</th>
+                    <th class="px-4 py-3 font-medium text-neutral-600">Status</th>
+                    <th class="px-4 py-3" />
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-neutral-100">
+                  {allInvites.map((inv) => {
+                    const status = inviteStatus(inv);
+                    return (
+                      <tr
+                        {...inviteRowAttrs({ email: inv.email, role: inv.role, status })}
+                      >
+                        <td class="px-4 py-2 text-neutral-900">{inv.email}</td>
+                        <td class="px-4 py-2 text-neutral-600">{inv.role}</td>
+                        <td class="px-4 py-2 text-neutral-500">
+                          {inv.memberId ? (memberName.get(inv.memberId) ?? inv.memberId) : '—'}
+                        </td>
+                        <td class="px-4 py-2">
+                          <span
+                            class={`px-2 py-0.5 rounded-full text-xs ${
+                              status === 'open'
+                                ? 'bg-green-100 text-green-800'
+                                : status === 'accepted'
+                                  ? 'bg-neutral-100 text-neutral-600'
+                                  : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {status}
+                          </span>
+                        </td>
+                        <td class="px-4 py-2 text-right">
+                          {status === 'open' && (
+                            <form method="post" action={`/admin/accounts/${inv.id}/revoke`}>
+                              <button
+                                type="submit"
+                                class="text-sm text-red-600 hover:text-red-700"
+                              >
+                                Revoke
+                              </button>
+                            </form>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p class="hidden text-neutral-500 text-sm py-6" data-invites-empty role="status">
+              No invitations match that search.
+            </p>
+          </>
+        )}
+      </section>
+
+      <section>
+        <div class="flex items-baseline justify-between gap-4 mb-3">
+          <h2 class="font-display font-semibold text-neutral-900">Existing accounts</h2>
+          <p class="text-sm text-neutral-500">
+            <span data-accounts-shown>{accounts.length}</span> of {accounts.length}
+          </p>
+        </div>
+
+        {accounts.length === 0 ? (
+          <p class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 text-neutral-600">
+            Nobody has signed in yet.
+          </p>
+        ) : (
+          <>
+            <AccountsFilter roles={ROLE_CHOICES} />
+            <div class="bg-white rounded-xl ring-1 ring-neutral-200 overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-neutral-50 text-left">
+                  <tr>
+                    <th class="px-4 py-3 font-medium text-neutral-600">Account</th>
+                    <th class="px-4 py-3 font-medium text-neutral-600">Role</th>
+                    <th class="px-4 py-3 font-medium text-neutral-600">Member profile</th>
+                    <th class="px-4 py-3" />
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-neutral-100">
+                  {accounts.map((a) => (
+                    <tr {...accountRowAttrs(a)}>
+                      <td class="px-4 py-2">
+                        <span class="text-neutral-900">{a.email}</span>
+                        {a.id === c.get('actor').id && (
+                          <span class="ml-2 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600 text-xs">
+                            you
+                          </span>
+                        )}
+                        <span class="block text-xs text-neutral-500">
+                          {a.name || 'no name set'}
+                        </span>
+                      </td>
+
+                      <td class="px-4 py-2">
+                        <form
+                          method="post"
+                          action={`/admin/accounts/user/${a.id}/role`}
+                          class="flex gap-1"
+                        >
+                          <label for={`role-${a.id}`} class="sr-only">
+                            Role for {a.email}
+                          </label>
+                          <select
+                            id={`role-${a.id}`}
+                            name="role"
+                            class="px-2 py-1.5 rounded-lg border border-neutral-300 bg-white text-sm"
+                          >
+                            <option value="" selected={!a.role}>
+                              No access
+                            </option>
+                            {ROLE_CHOICES.map((r) => (
+                              <option value={r.value} selected={a.role === r.value}>
+                                {r.label}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="submit"
+                            class="px-2 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-medium rounded-lg transition-colors"
+                          >
+                            Set
+                          </button>
+                        </form>
+                      </td>
+
+                      <td class="px-4 py-2">
+                        <form
+                          method="post"
+                          action={`/admin/accounts/user/${a.id}/link`}
+                          class="flex gap-1"
+                        >
+                          <label for={`link-${a.id}`} class="sr-only">
+                            Member profile for {a.email}
+                          </label>
+                          <input
+                            id={`link-${a.id}`}
+                            name="memberId"
+                            list="member-options"
+                            autocomplete="off"
+                            placeholder="Not linked"
+                            value={a.memberId ? (memberName.get(a.memberId) ?? a.memberId) : ''}
+                            class="w-44 px-2 py-1.5 rounded-lg border border-neutral-300 text-sm"
+                          />
+                          <button
+                            type="submit"
+                            class="px-2 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-medium rounded-lg transition-colors"
+                          >
+                            Set
+                          </button>
+                        </form>
+                      </td>
+
+                      <td class="px-4 py-2 text-right">
+                        {a.role && (
+                          <form
+                            method="post"
+                            action={`/admin/accounts/user/${a.id}/revoke`}
+                            onsubmit="return confirm('End this account’s access and sign them out?')"
+                          >
+                            <button
+                              type="submit"
+                              class="text-sm text-red-700 hover:text-red-800"
+                            >
+                              Remove access
+                            </button>
+                          </form>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p class="hidden text-neutral-500 text-sm py-6" data-accounts-empty role="status">
+              No accounts match that search.
+            </p>
+          </>
+        )}
+      </section>
+
+      <AccountsFilterScript />
+    </div>,
+    { title: 'Accounts' },
+  );
+});
+
+/** Invite one person, or paste a class list. */
+function InviteSection({ members }: { members: number }) {
+  const field =
+    'w-full px-4 py-2.5 rounded-lg border border-neutral-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none';
+
+  return (
+    <section class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 space-y-6">
+      <div>
         <h2 class="font-display font-semibold text-neutral-900 mb-1">Invite someone</h2>
         <p class="text-sm text-neutral-600 mb-4">
           Access is invitation-only. Send the invite to the address they will actually
@@ -2264,28 +2518,17 @@ adminRoutes.get('/admin/accounts', requirePermission('account', 'invite'), async
             <label for="inv-email" class="block text-sm font-medium text-neutral-700 mb-1">
               Email address
             </label>
-            <input
-              type="email"
-              id="inv-email"
-              name="email"
-              required
-              class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none"
-            />
+            <input type="email" id="inv-email" name="email" required class={field} />
           </div>
 
           <div>
             <label for="inv-role" class="block text-sm font-medium text-neutral-700 mb-1">
               Role
             </label>
-            <select
-              id="inv-role"
-              name="role"
-              class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 bg-white"
-            >
-              <option value="member">Member - own profile only</option>
-              <option value="officer">Officer - news, cast lists, approvals</option>
-              <option value="staff">Staff - everything except accounts</option>
-              <option value="admin">Admin - everything</option>
+            <select id="inv-role" name="role" class={`${field} bg-white`}>
+              {ROLE_CHOICES.map((r) => (
+                <option value={r.value}>{r.label}</option>
+              ))}
             </select>
           </div>
 
@@ -2293,18 +2536,14 @@ adminRoutes.get('/admin/accounts', requirePermission('account', 'invite'), async
             <label for="inv-member" class="block text-sm font-medium text-neutral-700 mb-1">
               Link to a member profile (optional)
             </label>
-            <select
+            <input
               id="inv-member"
               name="memberId"
-              class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 bg-white"
-            >
-              <option value="">No profile - board member or volunteer</option>
-              {linkableFor(null).map((m) => (
-                <option value={m.id}>
-                  {m.name} ({m.grade})
-                </option>
-              ))}
-            </select>
+              list="member-options"
+              autocomplete="off"
+              placeholder={`Start typing a name - ${members} on the roster`}
+              class={field}
+            />
           </div>
 
           <div class="sm:col-span-3">
@@ -2316,190 +2555,53 @@ adminRoutes.get('/admin/accounts', requirePermission('account', 'invite'), async
             </button>
           </div>
         </form>
-      </section>
+      </div>
 
-      <section>
-        <h2 class="font-display font-semibold text-neutral-900 mb-3">Invitations</h2>
-        {allInvites.length === 0 ? (
-          <p class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 text-neutral-600">
-            No invitations yet.
-          </p>
-        ) : (
-          <div class="bg-white rounded-xl ring-1 ring-neutral-200 overflow-x-auto">
-            <table class="w-full text-sm">
-              <thead class="bg-neutral-50 text-left">
-                <tr>
-                  <th class="px-4 py-3 font-medium text-neutral-600">Email</th>
-                  <th class="px-4 py-3 font-medium text-neutral-600">Role</th>
-                  <th class="px-4 py-3 font-medium text-neutral-600">Profile</th>
-                  <th class="px-4 py-3 font-medium text-neutral-600">Status</th>
-                  <th class="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-neutral-100">
-                {allInvites.map((inv) => {
-                  const status = inviteStatus(inv);
-                  return (
-                    <tr>
-                      <td class="px-4 py-2 text-neutral-900">{inv.email}</td>
-                      <td class="px-4 py-2 text-neutral-600">{inv.role}</td>
-                      <td class="px-4 py-2 text-neutral-500">{inv.memberId ?? '—'}</td>
-                      <td class="px-4 py-2">
-                        <span
-                          class={`px-2 py-0.5 rounded-full text-xs ${
-                            status === 'open'
-                              ? 'bg-green-100 text-green-800'
-                              : status === 'accepted'
-                                ? 'bg-neutral-100 text-neutral-600'
-                                : 'bg-amber-100 text-amber-800'
-                          }`}
-                        >
-                          {status}
-                        </span>
-                      </td>
-                      <td class="px-4 py-2 text-right">
-                        {status === 'open' && (
-                          <form method="post" action={`/admin/accounts/${inv.id}/revoke`}>
-                            <button
-                              type="submit"
-                              class="text-sm text-red-600 hover:text-red-700"
-                            >
-                              Revoke
-                            </button>
-                          </form>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      <details class="border-t border-neutral-100 pt-5">
+        <summary class="cursor-pointer text-sm font-medium text-neutral-800">
+          Invite a whole list
+        </summary>
+
+        <form method="post" action="/admin/accounts/invite-bulk" class="mt-4 space-y-4">
+          <div>
+            <label for="bulk-emails" class="block text-sm font-medium text-neutral-700 mb-1">
+              Email addresses
+            </label>
+            <textarea
+              id="bulk-emails"
+              name="emails"
+              rows={8}
+              required
+              placeholder={'ada@fairportschools.org\nben@fairportschools.org'}
+              class={`${field} font-mono text-sm`}
+            />
+            <p class="text-xs text-neutral-500 mt-1">
+              One per line. Nothing is sent until you have seen what it will do.
+            </p>
           </div>
-        )}
-      </section>
 
-      <section>
-        <h2 class="font-display font-semibold text-neutral-900 mb-3">Existing accounts</h2>
-        {accounts.length === 0 ? (
-          <p class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 text-neutral-600">
-            Nobody has signed in yet.
-          </p>
-        ) : (
-          <div class="space-y-3">
-            {accounts.map((a) => (
-              <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-5">
-                <div class="flex flex-wrap items-baseline justify-between gap-2 mb-4">
-                  <div>
-                    <p class="font-medium text-neutral-900">{a.email}</p>
-                    <p class="text-sm text-neutral-500">
-                      {a.name || 'no name set'}
-                      {a.role ? '' : ' · no access'}
-                    </p>
-                  </div>
-                  {a.id === c.get('actor').id && (
-                    <span class="px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600 text-xs">
-                      you
-                    </span>
-                  )}
-                </div>
-
-                <div class="grid gap-4 sm:grid-cols-2">
-                  <form
-                    method="post"
-                    action={`/admin/accounts/user/${a.id}/role`}
-                    class="flex items-end gap-2"
-                  >
-                    <div class="flex-1">
-                      <label
-                        for={`role-${a.id}`}
-                        class="block text-xs font-medium text-neutral-600 mb-1"
-                      >
-                        Role
-                      </label>
-                      <select
-                        id={`role-${a.id}`}
-                        name="role"
-                        class="w-full px-3 py-2 rounded-lg border border-neutral-300 bg-white text-sm"
-                      >
-                        <option value="" selected={!a.role}>
-                          None - no access
-                        </option>
-                        {ROLE_CHOICES.map((r) => (
-                          <option value={r.value} selected={a.role === r.value}>
-                            {r.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <button
-                      type="submit"
-                      class="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-sm font-medium rounded-lg transition-colors"
-                    >
-                      Set
-                    </button>
-                  </form>
-
-                  <form
-                    method="post"
-                    action={`/admin/accounts/user/${a.id}/link`}
-                    class="flex items-end gap-2"
-                  >
-                    <div class="flex-1">
-                      <label
-                        for={`link-${a.id}`}
-                        class="block text-xs font-medium text-neutral-600 mb-1"
-                      >
-                        Member profile
-                      </label>
-                      <select
-                        id={`link-${a.id}`}
-                        name="memberId"
-                        class="w-full px-3 py-2 rounded-lg border border-neutral-300 bg-white text-sm"
-                      >
-                        <option value="" selected={!a.memberId}>
-                          Not linked
-                        </option>
-                        {linkableFor(a.memberId).map((m) => (
-                          <option value={m.id} selected={a.memberId === m.id}>
-                            {m.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <button
-                      type="submit"
-                      class="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-sm font-medium rounded-lg transition-colors"
-                    >
-                      Set
-                    </button>
-                  </form>
-                </div>
-
-                {a.role && (
-                  <div class="mt-4 pt-3 border-t border-neutral-100 flex justify-end">
-                    <form
-                      method="post"
-                      action={`/admin/accounts/user/${a.id}/revoke`}
-                      onsubmit="return confirm('End this account’s access and sign them out?')"
-                    >
-                      <button
-                        type="submit"
-                        class="px-3 py-2 text-sm text-red-700 hover:bg-red-50 rounded-lg transition-colors"
-                      >
-                        Remove access
-                      </button>
-                    </form>
-                  </div>
-                )}
-              </div>
-            ))}
+          <div class="sm:w-64">
+            <label for="bulk-role" class="block text-sm font-medium text-neutral-700 mb-1">
+              Role for everyone on the list
+            </label>
+            <select id="bulk-role" name="role" class={`${field} bg-white`}>
+              {ROLE_CHOICES.map((r) => (
+                <option value={r.value}>{r.label}</option>
+              ))}
+            </select>
           </div>
-        )}
-      </section>
-    </div>,
-    { title: 'Accounts' },
+
+          <button
+            type="submit"
+            class="px-6 py-2.5 bg-neutral-800 hover:bg-neutral-900 text-white font-medium rounded-lg transition-colors"
+          >
+            Preview
+          </button>
+        </form>
+      </details>
+    </section>
   );
-});
+}
 
 adminRoutes.post(
   '/admin/accounts/invite',
@@ -2519,22 +2621,167 @@ adminRoutes.post(
       return c.redirect('/admin/accounts?error=Pick+a+valid+role', 302);
     }
 
+    // The member field is a shared datalist, so it carries a typed name.
+    const resolved = await resolveMemberRef(getDb(c.env.DB), memberId);
+    if (!resolved.ok) {
+      return c.redirect(`/admin/accounts?error=${encodeURIComponent(resolved.error)}`, 302);
+    }
+
     const result = await createInvite(
       getDb(c.env.DB),
       c.get('actor'),
       c.env.EMAIL,
       c.env.SITE_URL,
-      {
-        email: String(form.get('email') ?? ''),
-        role: role as AppRole,
-        memberId: memberId.length > 0 ? memberId : null,
-      },
+      { email: String(form.get('email') ?? ''), role: role as AppRole, memberId: resolved.id },
     );
 
     if (!result.ok) {
       return c.redirect(`/admin/accounts?error=${encodeURIComponent(result.error)}`, 302);
     }
     return c.redirect(`/admin/accounts?sent=${result.emailed ? 'ok' : 'nomail'}`, 302);
+  },
+);
+
+/**
+ * Bulk invite, step one: show what the list would do.
+ *
+ * Nothing is written here. Eighty invitations are eighty credentials, and the
+ * addresses come from a paste that was typed somewhere else - so the list is
+ * classified and shown back before any of it is acted on, the same shape as
+ * the grade rollover.
+ */
+adminRoutes.post(
+  '/admin/accounts/invite-bulk',
+  requirePermission('account', 'invite'),
+  async (c) => {
+    const form = await c.req.formData();
+    const role = String(form.get('role') ?? '');
+    const pasted = String(form.get('emails') ?? '');
+
+    if (!isAppRole(role)) {
+      return c.redirect('/admin/accounts?error=Pick+a+valid+role', 302);
+    }
+
+    const plan = await planBulkInvites(getDb(c.env.DB), pasted);
+    const skipped = plan.entries.filter((e) => e.outcome !== 'invite');
+
+    return c.render(
+      <div class="space-y-6 max-w-3xl">
+        <a href="/admin/accounts" class="text-sm text-primary-600 hover:text-primary-700">
+          &larr; Accounts
+        </a>
+        <h1 class="font-display text-2xl font-bold text-neutral-900">
+          Review before sending
+        </h1>
+
+        <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-6 space-y-2 text-sm">
+          <p>
+            <strong class="text-lg text-neutral-900">{plan.counts.invite}</strong> will be
+            invited as <strong>{role}</strong>.
+          </p>
+          {plan.counts['has-account'] > 0 && (
+            <p class="text-neutral-600">
+              {plan.counts['has-account']} already have an account - skipped.
+            </p>
+          )}
+          {plan.counts['already-invited'] > 0 && (
+            <p class="text-neutral-600">
+              {plan.counts['already-invited']} already have an open invite - skipped.
+            </p>
+          )}
+          {plan.counts.duplicate > 0 && (
+            <p class="text-neutral-600">
+              {plan.counts.duplicate} repeated on the list - counted once.
+            </p>
+          )}
+          {plan.counts.invalid > 0 && (
+            <p class="text-amber-800">
+              {plan.counts.invalid} do not look like email addresses - skipped.
+            </p>
+          )}
+        </div>
+
+        {skipped.length > 0 && (
+          <details class="bg-white rounded-xl ring-1 ring-neutral-200 p-6">
+            <summary class="cursor-pointer text-sm font-medium text-neutral-800">
+              What is being skipped, and why
+            </summary>
+            <ul class="mt-3 space-y-1 text-sm">
+              {skipped.map((e) => (
+                <li class="flex gap-3">
+                  <span class="text-neutral-400 tabular-nums w-10 text-right">
+                    {e.line}
+                  </span>
+                  <span class="font-mono text-neutral-700 flex-1 break-all">{e.raw}</span>
+                  <span class="text-neutral-500">{SKIP_REASON[e.outcome]}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+
+        {plan.counts.invite === 0 ? (
+          <p class="rounded-lg bg-amber-50 text-amber-900 text-sm px-4 py-3 ring-1 ring-amber-200">
+            There is nobody on this list to invite.
+          </p>
+        ) : (
+          <form method="post" action="/admin/accounts/invite-bulk/send">
+            <input type="hidden" name="role" value={role} />
+            {/*
+              The addresses carried forward are the ones the preview named, not
+              the original paste - so what is sent cannot differ from what was
+              shown, even if the roster changes between the two steps.
+            */}
+            <input type="hidden" name="emails" value={plan.toInvite.join('\n')} />
+            <button
+              type="submit"
+              class="px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
+            >
+              Send {plan.counts.invite} invitation{plan.counts.invite === 1 ? '' : 's'}
+            </button>
+          </form>
+        )}
+      </div>,
+      { title: 'Review invitations' },
+    );
+  },
+);
+
+const SKIP_REASON: Record<string, string> = {
+  'has-account': 'already has an account',
+  'already-invited': 'already invited',
+  invalid: 'not an email address',
+  duplicate: 'repeated',
+};
+
+adminRoutes.post(
+  '/admin/accounts/invite-bulk/send',
+  requirePermission('account', 'invite'),
+  async (c) => {
+    const form = await c.req.formData();
+    const role = String(form.get('role') ?? '');
+    if (!isAppRole(role)) {
+      return c.redirect('/admin/accounts?error=Pick+a+valid+role', 302);
+    }
+
+    const emails = String(form.get('emails') ?? '')
+      .split('\n')
+      .map((e) => e.trim())
+      .filter((e) => e.length > 0);
+
+    const result = await sendBulkInvites(
+      getDb(c.env.DB),
+      c.get('actor'),
+      c.env.EMAIL,
+      c.env.SITE_URL,
+      emails,
+      role,
+    );
+
+    return c.redirect(
+      `/admin/accounts?bulk=${result.created}&bulkFailed=${result.failed.length}`,
+      302,
+    );
   },
 );
 
@@ -2577,12 +2824,19 @@ adminRoutes.post(
   requirePermission('account', 'link'),
   async (c) => {
     const form = await c.req.formData();
-    const memberId = String(form.get('memberId') ?? '').trim();
+    const resolved = await resolveMemberRef(
+      getDb(c.env.DB),
+      String(form.get('memberId') ?? ''),
+    );
+    if (!resolved.ok) {
+      return c.redirect(`/admin/accounts?error=${encodeURIComponent(resolved.error)}`, 302);
+    }
+
     const result = await linkMember(
       getDb(c.env.DB),
       c.get('actor'),
       c.req.param('id'),
-      memberId.length > 0 ? memberId : null,
+      resolved.id,
     );
 
     return c.redirect(

@@ -2,6 +2,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { DB } from '~/db/queries';
 import { invites, type AppRole } from '~/db/schema/governance';
 import { members } from '~/db/schema/content';
+import { user } from '~/db/schema/auth';
 import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import { writeWithAudit } from '~/lib/audit/write';
 import type { Actor } from '~/lib/audit/actor';
@@ -148,4 +149,150 @@ export function inviteStatus(
   if (invite.acceptedAt) return 'accepted';
   if (new Date(invite.expiresAt) <= now) return 'expired';
   return 'open';
+}
+
+// ------------------------------------------------------------ bulk invite
+
+/** What will happen to one pasted line, decided before anything is sent. */
+export type BulkInviteOutcome =
+  | 'invite'
+  | 'has-account'
+  | 'already-invited'
+  | 'invalid'
+  | 'duplicate';
+
+export interface BulkInviteEntry {
+  /** 1-based, so an invalid line can be pointed at in the textarea. */
+  line: number;
+  raw: string;
+  email: string;
+  outcome: BulkInviteOutcome;
+}
+
+export interface BulkInvitePlan {
+  entries: BulkInviteEntry[];
+  /** Addresses that will actually be invited, in order. */
+  toInvite: string[];
+  counts: Record<BulkInviteOutcome, number>;
+}
+
+/**
+ * Works out what a pasted list would do, without doing any of it.
+ *
+ * The preview and the send both come from here, so what the confirmation
+ * screen promises is what runs. Inviting eighty students is not an action to
+ * discover the shape of halfway through - and an invite is a credential, so
+ * "it skipped some, I think" is not an acceptable outcome.
+ */
+export async function planBulkInvites(db: DB, pasted: string): Promise<BulkInvitePlan> {
+  const lines = pasted
+    .split(/[\r\n,;]+/)
+    .map((raw, i) => ({ line: i + 1, raw: raw.trim() }))
+    .filter((l) => l.raw.length > 0);
+
+  const emails = [...new Set(lines.map((l) => normalizeEmail(l.raw)))];
+
+  // Looked up in one pass rather than per line: eighty lines would otherwise
+  // be a hundred and sixty queries, and D1 caps how many parameters a single
+  // statement may bind, so a list of addresses cannot be passed in either.
+  const existingAccounts = new Set(
+    (await db.select({ email: user.email }).from(user)).map((r) => normalizeEmail(r.email)),
+  );
+  const openInvites = new Set(
+    (
+      await db
+        .select({ email: invites.email, expiresAt: invites.expiresAt })
+        .from(invites)
+        .where(and(isNull(invites.acceptedAt), isNull(invites.revokedAt)))
+    )
+      .filter((r) => new Date(r.expiresAt).getTime() > Date.now())
+      .map((r) => normalizeEmail(r.email)),
+  );
+
+  const seen = new Set<string>();
+  const entries: BulkInviteEntry[] = lines.map(({ line, raw }) => {
+    const email = normalizeEmail(raw);
+    const outcome: BulkInviteOutcome = !isEmailish(email)
+      ? 'invalid'
+      : seen.has(email)
+        ? 'duplicate'
+        : existingAccounts.has(email)
+          ? 'has-account'
+          : openInvites.has(email)
+            ? 'already-invited'
+            : 'invite';
+
+    if (outcome === 'invite') seen.add(email);
+    return { line, raw, email, outcome };
+  });
+
+  const counts: Record<BulkInviteOutcome, number> = {
+    invite: 0,
+    'has-account': 0,
+    'already-invited': 0,
+    invalid: 0,
+    duplicate: 0,
+  };
+  for (const e of entries) counts[e.outcome]++;
+
+  return {
+    entries,
+    toInvite: entries.filter((e) => e.outcome === 'invite').map((e) => e.email),
+    counts,
+  };
+}
+
+/**
+ * Deliberately stricter than createInvite's `includes('@')`.
+ *
+ * A pasted list is typed by hand somewhere else and arrives with stray names
+ * and trailing punctuation in it. Catching those at the preview is the whole
+ * point; letting one through creates an invite nobody can use and an audit row
+ * that says access was granted to something that is not an address.
+ */
+const isEmailish = (v: string): boolean => /^[^\s@]+@[^\s@.]+\.[^\s@]+$/.test(v);
+
+export interface BulkInviteResult {
+  sent: number;
+  created: number;
+  failed: { email: string; error: string }[];
+}
+
+/**
+ * Sends the invites a plan named.
+ *
+ * Each one goes through createInvite, so a bulk send and a single send produce
+ * the same row, the same audit entry, and the same email - there is no second
+ * path that could drift from the one already tested.
+ */
+export async function sendBulkInvites(
+  db: DB,
+  actor: Actor,
+  emailBinding: SendEmail,
+  siteUrl: string,
+  emails: string[],
+  role: AppRole,
+): Promise<BulkInviteResult> {
+  const result: BulkInviteResult = { sent: 0, created: 0, failed: [] };
+
+  for (const email of emails) {
+    const one = await createInvite(db, actor, emailBinding, siteUrl, {
+      email,
+      role,
+      memberId: null,
+    });
+
+    if (!one.ok) {
+      result.failed.push({ email, error: one.error });
+      continue;
+    }
+
+    result.created++;
+    // Counted separately: the invite exists and is usable either way, so a
+    // failed send is something to tell somebody about, not a failed invite.
+    if (one.emailed) result.sent++;
+    else result.failed.push({ email, error: one.emailError ?? 'The email could not be sent.' });
+  }
+
+  return result;
 }
