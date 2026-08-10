@@ -75,6 +75,38 @@ describe('the registered home page', () => {
     expect(await home()).toContain('starts private');
   });
 
+  it('says what Google data is requested and why', async () => {
+    const body = await home();
+
+    // Google's App Homepage requirements are three clauses. This is the third
+    // - "explain with transparency the purpose for which your app requests
+    // user data" - and it was the one the page never answered, while four
+    // rewrites addressed the first two. The check is against the registered
+    // home page and does not follow links, so it has to be said here.
+    expect(body).toContain('requests only their');
+    expect(body).toContain('email address and basic profile');
+    expect(body).toContain('to match the person signing in to the invitation');
+  });
+
+  it('says what is not done with that data', async () => {
+    const body = await home();
+
+    expect(body).toContain('Nothing else is read from a Google account');
+    expect(body).toContain('advertising');
+    expect(body).toContain('sold or shared');
+  });
+
+  it('links the privacy policy from the home page itself', async () => {
+    const body = await home();
+    const about = body.indexOf('About This Website');
+    const nextSection = body.indexOf('Past Productions');
+
+    // The same requirements ask the home page to carry a privacy policy link
+    // matching the consent screen. A footer link satisfies the letter of it;
+    // one in the paragraph about data cannot be missed.
+    expect(body.slice(about, nextSection)).toContain('href="/privacy"');
+  });
+
   it('describes it once, not in two competing places', async () => {
     const body = await home();
 

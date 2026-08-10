@@ -197,9 +197,37 @@ home.get('/', async (c) => {
             written and kept up to date by the club&rsquo;s own students and volunteers
             rather than by an outside webmaster.
           </p>
-          <p class="text-neutral-700 max-w-3xl leading-relaxed mb-10">
+          <p class="text-neutral-700 max-w-3xl leading-relaxed mb-4">
             Anyone can read the site without an account. Behind it is a members&rsquo; area
             where the club maintains everything you see here.
+          </p>
+          {/*
+            Why the app asks for Google data, on the home page itself.
+
+            Google's App Homepage requirements are three clauses, and this is
+            the third: "explain with transparency the purpose for which your
+            app requests user data". The first two - identify the app, describe
+            what it does - were already covered above, which is why four
+            rewrites of those did not move the review. The same explanation
+            lives on /about/website, but the check is against the registered
+            home page and does not follow links.
+
+            The privacy policy is linked from here as well, which the same
+            requirements ask for, and it must stay the URL configured on the
+            consent screen.
+          */}
+          <p class="text-neutral-700 max-w-3xl leading-relaxed mb-10">
+            <strong>When a member signs in with Google, Fairport Drama requests only their
+            email address and basic profile information.</strong> It uses them for a single
+            purpose: to match the person signing in to the invitation that granted them
+            access, so that only invited members reach the members&rsquo; area. Nothing else
+            is read from a Google account, no Google data is used for advertising, and none
+            of it is sold or shared. Members can also sign in without Google, using a link
+            sent to their email address. See our{' '}
+            <a href="/privacy" class="text-primary-600 hover:text-primary-700 underline">
+              privacy policy
+            </a>{' '}
+            for what the site stores and how to have it removed.
           </p>
 
           <div class="grid gap-8 md:grid-cols-3 mb-10">
