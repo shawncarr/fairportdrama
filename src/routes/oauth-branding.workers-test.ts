@@ -53,6 +53,15 @@ describe('the registered home page', () => {
     expect(body).toContain('volunteer parent organization');
   });
 
+  it('leads with the name registered on the OAuth consent screen', async () => {
+    const body = await home();
+
+    // The reviewer compares the consent screen's app name against the home
+    // page. "Fairport Drama" is what is registered, so the page says it in the
+    // header and again as the subject of the opening sentence.
+    expect(body).toContain('Fairport Drama is the official website');
+  });
+
   it('says what the members area does, which is what the OAuth client is for', async () => {
     const body = await home();
 
@@ -75,7 +84,7 @@ describe('the registered home page', () => {
     expect(body).not.toContain('For Club Members');
   });
 
-  it('links to the fuller page, to sign-in, and to the policies', async () => {
+  it('links to the fuller page, to sign-in, and to the policies somewhere', async () => {
     const body = await home();
 
     expect(body).toContain('href="/about/website"');

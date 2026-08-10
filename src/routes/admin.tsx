@@ -3375,7 +3375,7 @@ function ShowFields({ values }: { values: ShowFormValues }) {
 
       <label class="flex items-center gap-2 text-sm text-neutral-700">
         <input type="checkbox" name="isHighlighted" value="1" checked={values.isHighlighted} />
-        Highlight in "Past Productions" on the home page once it has closed
+        Show first in "Past Productions" on the home page once it has closed
       </label>
     </div>
   );

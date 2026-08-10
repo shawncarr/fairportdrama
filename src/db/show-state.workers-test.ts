@@ -111,17 +111,19 @@ describe('past shows include closed-but-still-flagged runs', () => {
     expect(past.map((s) => s.id)).toContain('old');
   });
 
-  it('respects the highlighted filter', async () => {
+  it('returns every finished show, highlighted or not', async () => {
     await seedShow('plain', false, [iso(-100)], false);
     await seedShow('starred', false, [iso(-100)], true);
-    const highlighted = await getPastShows(db(), { highlightedOnly: true });
-    expect(highlighted.map((s) => s.id)).toEqual(['starred']);
+
+    // Highlighting used to filter this query, which is why the home page had
+    // collapsed to one card: one show in four carried the flag. It orders the
+    // home page now, and the archive lists everything.
+    expect((await getPastShows(db())).map((s) => s.id).sort()).toEqual(['plain', 'starred']);
   });
 
-  it('a closed current show can also be highlighted', async () => {
+  it('includes a closed current show, highlighted or not', async () => {
     await seedShow('finished-star', true, [iso(-40)], true);
-    const highlighted = await getPastShows(db(), { highlightedOnly: true });
-    expect(highlighted.map((s) => s.id)).toContain('finished-star');
+    expect((await getPastShows(db())).map((s) => s.id)).toContain('finished-star');
   });
 });
 

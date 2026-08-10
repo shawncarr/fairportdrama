@@ -5,14 +5,16 @@ import { organizationSchema } from './seo';
 // could stat a file would also let a Worker route reference node APIs and
 // typecheck cleanly right up until it failed in production.
 import favicon from '../../public/favicon.svg?raw';
+import logo from '../../public/images/logo.png?raw';
 
 /**
  * Static files the markup promises.
  *
  * The favicon was left behind in the move off Astro: every page linked
  * /favicon.svg and nothing served it, which shows as a blank browser tab
- * rather than as an error anywhere. The import itself is the existence check -
- * if the file goes missing, this module fails to resolve.
+ * rather than as an error anywhere. The structured data made the same promise
+ * about a logo that had never existed in either project. The import is the
+ * existence check - if a file goes missing, this module fails to resolve.
  */
 
 describe('the favicon', () => {
@@ -25,13 +27,15 @@ describe('the favicon', () => {
 });
 
 describe('structured data', () => {
-  it('claims no logo, since there is no logo file to claim', () => {
-    const schema = organizationSchema('https://fairportdrama.com') as Record<string, unknown>;
+  it('claims a logo', () => {
+    const schema = organizationSchema('https://fairportdrama.com') as { logo?: string };
+    expect(schema.logo).toBe('https://fairportdrama.com/images/logo.png');
+  });
 
-    // It used to point at /images/logo.png, which never existed in either this
-    // project or the Astro site it was copied from. Restoring the property
-    // without adding the file would put a 404 back into the markup that every
-    // crawler reads.
-    expect(schema).not.toHaveProperty('logo');
+  it('claims one that is actually shipped', () => {
+    // The property previously pointed at a file that did not exist, so the
+    // markup every crawler reads advertised a 404. Claiming and shipping are
+    // asserted together because separately either one looks fine.
+    expect(logo.length).toBeGreaterThan(1000);
   });
 });

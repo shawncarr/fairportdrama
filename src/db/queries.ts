@@ -100,17 +100,13 @@ export async function getShow(db: DB, id: string) {
  * homepage, but absent from the archive too - until someone remembered to
  * clear the flag by hand.
  */
-export async function getPastShows(db: DB, opts: { highlightedOnly?: boolean } = {}) {
+export async function getPastShows(db: DB) {
   const finished = or(
     eq(shows.isCurrent, false),
     sql`${lastPerformanceDate} IS NOT NULL AND ${lastPerformanceDate} < ${today()}`,
   );
 
-  return db
-    .select()
-    .from(shows)
-    .where(opts.highlightedOnly ? and(finished, eq(shows.isHighlighted, true)) : finished)
-    .orderBy(desc(shows.year));
+  return db.select().from(shows).where(finished).orderBy(desc(shows.year));
 }
 
 export async function getPerformances(db: DB, showId: string) {

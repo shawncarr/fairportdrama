@@ -16,10 +16,24 @@ home.get('/', async (c) => {
   const currentShow = await getCurrentShow(db);
   const [performances, pastShows, latestNews, sponsors] = await Promise.all([
     currentShow ? getPerformances(db, currentShow.id) : Promise.resolve([]),
-    getPastShows(db, { highlightedOnly: true }),
+    getPastShows(db),
     getPublishedNews(db, 3),
     getSponsors(db, { showId: null }),
   ]);
+
+  /**
+   * Past productions for the home page.
+   *
+   * The current show is dropped because it is already the hero: its run had
+   * closed, so it counted as finished and the page listed the same production
+   * twice. Highlighting now orders rather than filters - the section used to
+   * show only flagged shows, and with one flag set across four productions it
+   * had collapsed to a single card that was also the hero.
+   */
+  const homePastShows = pastShows
+    .filter((s) => s.id !== currentShow?.id)
+    .sort((a, b) => Number(b.isHighlighted) - Number(a.isHighlighted) || b.year - a.year)
+    .slice(0, 3);
 
   const heroUrl = images.deliveryUrl(currentShow?.heroImageId, IMAGE_VARIANT.Hero);
 
@@ -177,7 +191,7 @@ home.get('/', async (c) => {
             About This Website
           </h2>
           <p class="text-lg text-neutral-700 max-w-3xl leading-relaxed mb-4">
-            <strong>fairportdrama.com is the official website of the Fairport High School
+            <strong>Fairport Drama is the official website of the Fairport High School
             Drama Club</strong> in Fairport, New York. It is published by the Drama Club
             Boosters, a volunteer parent organization supporting student theater, and it is
             written and kept up to date by the club&rsquo;s own students and volunteers
@@ -239,18 +253,6 @@ home.get('/', async (c) => {
             >
               Member sign in
             </a>
-            <a
-              href="/about/boosters"
-              class="text-primary-600 hover:text-primary-700 font-medium"
-            >
-              Drama Club Boosters
-            </a>
-            <a href="/privacy" class="text-primary-600 hover:text-primary-700 font-medium">
-              Privacy policy
-            </a>
-            <a href="/terms" class="text-primary-600 hover:text-primary-700 font-medium">
-              Terms of use
-            </a>
           </div>
         </div>
       </section>
@@ -290,7 +292,7 @@ home.get('/', async (c) => {
         </section>
       )}
 
-      {pastShows.length > 0 && (
+      {homePastShows.length > 0 && (
         <section class="py-16 lg:py-24 bg-white">
           <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between mb-10">
@@ -305,7 +307,7 @@ home.get('/', async (c) => {
               </a>
             </div>
             <div class="grid gap-8 md:grid-cols-3">
-              {pastShows.slice(0, 3).map((show) => {
+              {homePastShows.map((show) => {
                 const poster = images.deliveryUrl(show.posterImageId, IMAGE_VARIANT.Poster);
                 return (
                   <a
