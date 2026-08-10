@@ -96,15 +96,26 @@ describe('the registered home page', () => {
     expect(body).toContain('sold or shared');
   });
 
-  it('links the privacy policy from the home page itself', async () => {
+  it('links the privacy policy from the paragraph about data', async () => {
     const body = await home();
-    const about = body.indexOf('About This Website');
-    const nextSection = body.indexOf('Past Productions');
+    const notice = body.indexOf('Signing in with Google');
+    expect(notice).toBeGreaterThan(-1);
 
     // The same requirements ask the home page to carry a privacy policy link
-    // matching the consent screen. A footer link satisfies the letter of it;
-    // one in the paragraph about data cannot be missed.
-    expect(body.slice(about, nextSection)).toContain('href="/privacy"');
+    // matching the consent screen. The footer link satisfies the letter of it;
+    // one beside the sentence about what is collected is the point of it.
+    expect(body.slice(notice, notice + 1600)).toContain('href="/privacy"');
+  });
+
+  it('keeps the data notice on the page, below the club content', async () => {
+    const body = await home();
+
+    // Moved out of the opening section deliberately: it was several hundred
+    // words of compliance copy at the top of the funnel, and the check failed
+    // with it there anyway, so position was never what was being measured.
+    const about = body.indexOf('About This Website');
+    const notice = body.indexOf('Signing in with Google');
+    expect(notice).toBeGreaterThan(about);
   });
 
   it('describes it once, not in two competing places', async () => {
