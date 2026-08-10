@@ -262,6 +262,56 @@ home.get('/', async (c) => {
         </section>
       )}
 
+      {/*
+        Describes the members' area on the public home page.
+
+        Partly for students, who otherwise have no way of knowing the site is
+        something they can sign in to. Partly for Google's OAuth review, which
+        requires the home page registered against the client to be reachable
+        without signing in and to say what the application does - the rest of
+        this page is about the club, not about the software.
+      */}
+      <section class="py-16 lg:py-24 bg-neutral-50">
+        <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+          <h2 class="font-display text-3xl lg:text-4xl font-bold text-neutral-900 mb-4">
+            For Club Members
+          </h2>
+          <p class="text-neutral-700 mb-4 leading-relaxed">
+            This website is maintained by the Fairport High School Drama Club itself. Cast
+            and crew, student officers, and the adults who help run the club sign in to keep
+            it current - posting news and audition notices, building cast and crew lists,
+            adding production photos, and editing their own member profile.
+          </p>
+          <p class="text-neutral-700 mb-6 leading-relaxed">
+            Members sign in with their school Google account or with a link sent to their
+            email address. <strong>Access is by invitation only</strong>: signing in with
+            Google does not create an account, and a Boosters board member has to invite you
+            first. Students choose for themselves whether their full name, photograph, and
+            biography appear publicly.
+          </p>
+          <div class="flex flex-wrap gap-4 items-center">
+            <a
+              href="/admin/sign-in"
+              class="inline-flex items-center justify-center px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-lg transition-colors"
+            >
+              Member sign in
+            </a>
+            <a href="/privacy" class="text-primary-600 hover:text-primary-700 font-medium">
+              Privacy policy
+            </a>
+            <a href="/terms" class="text-primary-600 hover:text-primary-700 font-medium">
+              Terms of use
+            </a>
+            <a
+              href="/about/contact"
+              class="text-primary-600 hover:text-primary-700 font-medium"
+            >
+              Request access
+            </a>
+          </div>
+        </div>
+      </section>
+
       <section class="py-16 lg:py-24 bg-gradient-to-r from-primary-600 to-secondary-700 text-white">
         <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 text-center">
           <h2 class="font-display text-3xl lg:text-4xl font-bold mb-4">
