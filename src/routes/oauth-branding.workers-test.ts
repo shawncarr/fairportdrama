@@ -84,9 +84,12 @@ describe('the registered home page', () => {
     expect(body).not.toContain('For Club Members');
   });
 
-  it('links to the fuller page, to sign-in, and to the policies somewhere', async () => {
+  it('links to the fuller page, to sign-in, and to the policies', async () => {
     const body = await home();
 
+    // From the footer and the nav rather than from the About section, which
+    // is prose now. What matters for the review is that the home page reaches
+    // them, not which block they sit in.
     expect(body).toContain('href="/about/website"');
     expect(body).toContain('href="/admin/sign-in"');
     expect(body).toContain('href="/about/boosters"');

@@ -240,20 +240,6 @@ home.get('/', async (c) => {
             </div>
           </div>
 
-          <div class="flex flex-wrap gap-x-6 gap-y-2 items-center">
-            <a
-              href="/about/website"
-              class="inline-flex items-center justify-center px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-lg transition-colors"
-            >
-              More about this website
-            </a>
-            <a
-              href="/admin/sign-in"
-              class="text-primary-600 hover:text-primary-700 font-medium"
-            >
-              Member sign in
-            </a>
-          </div>
         </div>
       </section>
 

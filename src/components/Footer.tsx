@@ -170,6 +170,7 @@ export function Footer({ year }: { year: number }) {
             <p class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-neutral-400">
               {[
                 { href: '/about/website', label: 'About this site' },
+                { href: '/admin/sign-in', label: 'Member sign in' },
                 { href: '/privacy', label: 'Privacy' },
                 { href: '/terms', label: 'Terms' },
                 { href: '/disclaimer', label: 'Disclaimer' },
