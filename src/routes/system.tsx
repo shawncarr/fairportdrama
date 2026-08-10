@@ -34,6 +34,7 @@ systemRoutes.get('/sitemap.xml', async (c) => {
     '/about/boosters',
     '/about/sponsors',
     '/about/contact',
+    '/about/website',
     '/disclaimer',
     '/privacy',
     '/terms',

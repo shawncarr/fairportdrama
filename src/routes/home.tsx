@@ -157,6 +157,43 @@ home.get('/', async (c) => {
         </section>
       )}
 
+      {/*
+        One line saying what this site is, directly under the hero.
+
+        There is a fuller explanation further down, but Google's OAuth review
+        refused verification for a home page that "does not explain the purpose
+        of your app" while that section was already live - below the news, the
+        past shows and the sponsors, which is further than a reviewer reads.
+        This is the same claim where it cannot be missed, and it is worth
+        saying to students anyway.
+      */}
+      <section class="bg-white border-b border-neutral-200">
+        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-5 flex flex-col sm:flex-row sm:items-center gap-x-6 gap-y-2 justify-between">
+          <p class="text-sm text-neutral-700">
+            <strong class="text-neutral-900">
+              The official website of the Fairport High School Drama Club
+            </strong>{' '}
+            in Fairport, New York - productions, cast and crew, news, and ways to support
+            student theater. Published by the Drama Club Boosters, a volunteer parent
+            organization, and kept up to date by the club itself.
+          </p>
+          <p class="flex flex-wrap gap-x-5 gap-y-1 text-sm shrink-0">
+            <a
+              href="/about/website"
+              class="text-primary-600 hover:text-primary-700 font-medium whitespace-nowrap"
+            >
+              About this site
+            </a>
+            <a
+              href="/about/boosters"
+              class="text-primary-600 hover:text-primary-700 font-medium whitespace-nowrap"
+            >
+              Boosters
+            </a>
+          </p>
+        </div>
+      </section>
+
       {latestNews.length > 0 && (
         <section class="py-16 lg:py-24 bg-neutral-50">
           <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -301,6 +338,12 @@ home.get('/', async (c) => {
             </a>
             <a href="/terms" class="text-primary-600 hover:text-primary-700 font-medium">
               Terms of use
+            </a>
+            <a
+              href="/about/website"
+              class="text-primary-600 hover:text-primary-700 font-medium"
+            >
+              How this site works
             </a>
             <a
               href="/about/contact"

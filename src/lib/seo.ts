@@ -22,7 +22,11 @@ export const organizationSchema = (siteUrl: string) => ({
   name: SITE_NAME,
   alternateName: 'Fairport High School Drama Club',
   url: siteUrl,
-  logo: new URL('/images/logo.png', siteUrl).toString(),
+  // No `logo`. It pointed at /images/logo.png, which does not exist and never
+  // did - not in this project and not in the Astro site it was copied from, so
+  // the structured data has always advertised a 404 to every crawler that read
+  // it. Omitting the property is valid; a broken URL is worse than none.
+  // Drop a real image at public/images/logo.png and restore this line.
   description:
     'High school drama club showcasing student talent through theatrical productions',
   address: {

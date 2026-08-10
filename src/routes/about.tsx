@@ -114,6 +114,125 @@ aboutRoutes.get('/about/boosters', (c) =>
   ),
 );
 
+/**
+ * The page registered with Google as the application's home page.
+ *
+ * Google's OAuth review refused verification twice: the home page is behind a
+ * login page, and it does not explain the purpose of the app. The site root is
+ * public, but it is a page about a drama club's productions - a reviewer
+ * landing on it learns nothing about the software or what the OAuth client is
+ * for, and burying that under the show listings would serve neither audience.
+ *
+ * So this exists: public, no sign-in, and about the application rather than
+ * about the club. It is what the "Application home page" field should point
+ * at. Everything on it has to stay true of the running system - it is a
+ * description of behaviour, not marketing copy.
+ */
+aboutRoutes.get('/about/website', (c) =>
+  c.render(
+    <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-16">
+      <h1 class="font-display text-4xl font-bold text-neutral-900 mb-3">
+        About This Website
+      </h1>
+      <p class="text-lg text-neutral-600 mb-10">
+        fairportdrama.com is the website of the Fairport High School Drama Club, in
+        Fairport, New York. It is run by the club's own students and volunteers rather
+        than by an outside webmaster.
+      </p>
+
+      <h2 class="font-display text-2xl font-semibold text-neutral-900 mt-10 mb-3">
+        What this application does
+      </h2>
+      <p class="text-neutral-700 mb-4 leading-relaxed">
+        The public part of the site shows the club's productions, cast and crew lists,
+        performance dates, news, and member profiles. Anyone can read it without an
+        account.
+      </p>
+      <p class="text-neutral-700 mb-4 leading-relaxed">
+        Behind it is a members' area where the club maintains all of that itself. Signed-in
+        users can:
+      </p>
+      <ul class="text-neutral-700 space-y-2 mb-4 list-disc pl-6">
+        <li>Create and edit shows, performance dates, and cast and crew lists</li>
+        <li>Write news posts and audition notices</li>
+        <li>Upload production photographs</li>
+        <li>Maintain the member roster and club officer records</li>
+        <li>Edit their own member profile, including their photograph and biography</li>
+      </ul>
+      <p class="text-neutral-700 mb-4 leading-relaxed">
+        What each person can do depends on their role. Students who are not club officers
+        can only edit their own profile, and their changes are reviewed before they appear
+        publicly.
+      </p>
+
+      <h2 class="font-display text-2xl font-semibold text-neutral-900 mt-10 mb-3">
+        How signing in works
+      </h2>
+      <p class="text-neutral-700 mb-4 leading-relaxed">
+        Members sign in either with a Google account or with a one-time link sent to their
+        email address. Google sign-in is offered because most students already have a
+        school Google account, and it saves them another password.
+      </p>
+      <p class="text-neutral-700 mb-4 leading-relaxed">
+        <strong>Signing in with Google does not create an account.</strong> Access is by
+        invitation only: a member of the Drama Club Boosters board has to invite an email
+        address first. Signing in with an address that has not been invited is refused and
+        creates no account.
+      </p>
+      <p class="text-neutral-700 mb-4 leading-relaxed">
+        From Google we request only the sign-in scopes - the email address and basic
+        profile of the person signing in - and we use them to match the account to its
+        invitation. We do not read, send, or store anything else from a Google account.
+      </p>
+
+      <h2 class="font-display text-2xl font-semibold text-neutral-900 mt-10 mb-3">
+        Students and privacy
+      </h2>
+      <p class="text-neutral-700 mb-4 leading-relaxed">
+        Most members of the club are minors, so every member profile starts private:
+        listed as a first name and last initial, with no photograph, no biography, and no
+        page of their own. A student chooses for themselves whether to appear in full, and
+        can change that back at any time.
+      </p>
+
+      <h2 class="font-display text-2xl font-semibold text-neutral-900 mt-10 mb-3">
+        Getting access
+      </h2>
+      <p class="text-neutral-700 mb-6 leading-relaxed">
+        If you are a club member, a parent volunteer, or a member of the Boosters board and
+        need an account,{' '}
+        <a href="/about/contact" class="text-primary-600 hover:text-primary-700">
+          get in touch
+        </a>{' '}
+        and someone on the board will invite you.
+      </p>
+
+      <div class="flex flex-wrap gap-4 items-center border-t border-neutral-200 pt-8">
+        <a
+          href="/admin/sign-in"
+          class="inline-flex items-center justify-center px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-lg transition-colors"
+        >
+          Member sign in
+        </a>
+        <a href="/" class="text-primary-600 hover:text-primary-700 font-medium">
+          Drama Club home
+        </a>
+        <a href="/privacy" class="text-primary-600 hover:text-primary-700 font-medium">
+          Privacy policy
+        </a>
+        <a href="/terms" class="text-primary-600 hover:text-primary-700 font-medium">
+          Terms of use
+        </a>
+      </div>
+    </div>,
+    {
+      title: 'About This Website',
+      description:
+        'What the Fairport Drama Club website does, how club members sign in, and how student privacy is handled.',
+    },
+  ),
+);
+
 const SUBJECTS = [
   { value: 'joining', label: 'Joining Drama Club' },
   { value: 'auditions', label: 'Audition Information' },

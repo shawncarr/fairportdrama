@@ -37,6 +37,31 @@ describe('the registered home page', () => {
     expect(body).toContain('invitation only');
   });
 
+  it('says what the site is above the news, not only at the bottom', async () => {
+    const body = await home();
+
+    // Verification was refused for a home page that "does not explain the
+    // purpose of your app" while the fuller section was already live - it sat
+    // below the news, past shows and sponsors. Position is the fix.
+    const statement = body.indexOf('The official website of the Fairport High School');
+    expect(statement).toBeGreaterThan(-1);
+
+    const fullSection = body.indexOf('For Club Members');
+    expect(statement).toBeLessThan(fullSection);
+  });
+
+  it('names who publishes it, and links to them', async () => {
+    const body = await home();
+
+    expect(body).toContain('Drama Club Boosters');
+    expect(body).toContain('volunteer parent organization');
+    expect(body).toContain('href="/about/boosters"');
+  });
+
+  it('links to the page that describes the application in full', async () => {
+    expect(await home()).toContain('href="/about/website"');
+  });
+
   it('says how people sign in, which is what the OAuth client is used for', async () => {
     expect(await home()).toMatch(/Google account/);
   });
