@@ -1,6 +1,7 @@
 import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
 import { and, asc, desc, eq, or, sql } from 'drizzle-orm';
 import * as schema from './schema';
+import { withReadRetry } from './retry';
 import {
   MEMBER_VISIBILITY,
   members,
@@ -18,7 +19,7 @@ import {
 import { toPublicMember, type DisplayableMember } from '~/lib/member-display';
 
 export type DB = DrizzleD1Database<typeof schema>;
-export const getDb = (binding: D1Database): DB => drizzle(binding, { schema });
+export const getDb = (binding: D1Database): DB => drizzle(withReadRetry(binding), { schema });
 
 // ---------------------------------------------------------------- shows
 

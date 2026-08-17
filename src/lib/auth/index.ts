@@ -6,6 +6,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { Bindings } from '~/env';
 import * as schema from '~/db/schema';
+import { withReadRetry } from '~/db/retry';
 import { invites } from '~/db/schema/governance';
 import { user } from '~/db/schema/auth';
 import { generateId } from '~/lib/id';
@@ -22,7 +23,11 @@ import {
 } from './invite-gate';
 
 export function createAuth(env: Bindings) {
-  const db = drizzle(env.DB, { schema });
+  // Its own instance, because Better Auth owns the adapter - but on the same
+  // retrying binding as `getDb`. A session lookup is a read like any other,
+  // and a D1 blip during one signs the visitor out rather than 500ing, which
+  // is quieter and worse.
+  const db = drizzle(withReadRetry(env.DB), { schema });
 
   return betterAuth({
     baseURL: env.SITE_URL,
