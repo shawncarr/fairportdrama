@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '~/env';
+import { describeError } from '~/lib/errors';
 import { findByToken } from '~/services/newsletter';
 import { getDb, getIndexableMemberIds, getPastShows, getPublishedNews, getCurrentShow } from '~/db/queries';
 
@@ -504,6 +505,49 @@ export const notFound = (c: Parameters<Parameters<Hono<AppEnv>['notFound']>[0]>[
       </div>
     </div>,
     { title: 'Page Not Found' },
+  );
+};
+
+/**
+ * 500.
+ *
+ * Registered because there was nothing: a query that threw took the whole
+ * response with it, so the visitor got the runtime's own error page and the
+ * log got a stack with no reason attached. Both halves are fixed here - the
+ * cause chain is unwrapped into the log, and the visitor gets a page.
+ *
+ * The handler must not throw. Everything it touches is either the context or
+ * already in memory.
+ */
+export const serverError = (
+  err: Parameters<Parameters<Hono<AppEnv>['onError']>[0]>[0],
+  c: Parameters<Parameters<Hono<AppEnv>['onError']>[0]>[1],
+) => {
+  // Logged as an object, not an interpolated string: Workers Logs indexes the
+  // fields, so `causes` stays filterable rather than being buried in a message.
+  console.error({ path: c.req.path, ...describeError(err) });
+
+  // The JSON endpoints are mounted ahead of the layout and are called by
+  // fetch, not followed by a browser. An HTML error page is unparseable there.
+  if (c.req.path.startsWith('/api/')) {
+    return c.json({ success: false, error: 'Something went wrong. Please try again.' }, 500);
+  }
+
+  c.status(500);
+  return c.render(
+    <div class="mx-auto max-w-2xl px-4 sm:px-6 lg:px-8 py-24 text-center">
+      <h1 class="font-display text-4xl font-bold text-neutral-900 mb-3">Something Went Wrong</h1>
+      <p class="text-neutral-600 mb-8">
+        This one is on us, not on you. Please try again in a moment.
+      </p>
+      <a
+        href="/"
+        class="inline-flex items-center justify-center px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-lg transition-colors"
+      >
+        Go Home
+      </a>
+    </div>,
+    { title: 'Something Went Wrong' },
   );
 };
 

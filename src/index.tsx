@@ -9,7 +9,7 @@ import { memberRoutes } from '~/routes/members';
 import { miscRoutes } from '~/routes/misc';
 import { apiRoutes } from '~/routes/api';
 import { aboutRoutes } from '~/routes/about';
-import { notFound, systemRoutes } from '~/routes/system';
+import { notFound, serverError, systemRoutes } from '~/routes/system';
 import { adminRoutes } from '~/routes/admin';
 import { adminCatalogRoutes } from '~/routes/admin-catalog';
 
@@ -41,5 +41,6 @@ app.route('/', aboutRoutes);
 app.route('/', systemRoutes);
 
 app.notFound(notFound);
+app.onError(serverError);
 
 export default app;
