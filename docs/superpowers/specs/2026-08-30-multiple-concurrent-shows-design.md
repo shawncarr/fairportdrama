@@ -88,7 +88,7 @@ This matches how every other vocabulary in the codebase is expressed — `SHOW_C
 
 `getCurrentShow` is replaced by `getPromotedShows(db)`, returning the Upcoming set ordered by first performance date ascending, with dateless shows sorted last. `getPastShows` becomes "has at least one performance and the last one is in the past", ordered by year descending, then last performance descending, then title. The null guard matters: phrased as "every date is in the past" it is vacuously true of a show with no dates at all, which would drag dateless drafts into the archive and the sitemap and quietly defeat the draft rule. It matches the existing `lastPerformanceDate IS NOT NULL AND < today` guard at `queries.ts:107`. The current ordering is `desc(shows.year)` alone, which is ambiguous the moment one year holds four shows.
 
-Both queries project `firstPerformance` and `lastPerformance` as correlated subqueries, the same shape as the existing `lastPerformanceDate` at `queries.ts:39`. They need those columns to order by regardless, and projecting them is also what keeps the card date line off an N+1: no card fetches its own performances. `getPerformances` stays a single call, for the hero and the show page, which need the whole schedule rather than its endpoints.
+Both queries project `firstPerformance` and `lastPerformance` as correlated subqueries, the same shape as the existing `lastPerformanceDate` at `queries.ts:40`. They need those columns to order by regardless, and projecting them is also what keeps the card date line off an N+1: no card fetches its own performances. `getPerformances` stays a single call, for the hero and the show page, which need the whole schedule rather than its endpoints.
 
 `getLastClosedAnnouncedShow(db)` returns the single most recently closed announced show, for the home page fallback in section 4. It needs its own announced filter and cannot reuse `getPastShows`, which by then includes unannounced past shows.
 
@@ -157,7 +157,7 @@ All four seeded shows have performance rows, so the new date-driven rules strand
 
 Two existing suites assert exactly the behavior this design removes and go red the moment `setAnnounced` lands. They are rewritten, not extended:
 
-- `src/services/shows.workers-test.ts` — "is exclusive, so the home page never has to pick between two" (`:135`) becomes its inverse: announcing a second show leaves the first announced. "records which show replaced which" (`:155`) asserts a `featuredShow: { before, after }` diff that no longer exists and becomes an `isAnnounced` diff. "can clear the feature entirely" (`:143`) becomes un-announcing one show.
+- `src/services/shows.workers-test.ts` — "is exclusive, so the home page never has to pick between two" (`:135`) becomes its inverse: announcing a second show leaves the first announced. "records which show replaced which" (`:151`) asserts a `featuredShow: { before, after }` diff that no longer exists and becomes an `isAnnounced` diff. "can clear the feature entirely" (`:143`) becomes un-announcing one show.
 - `src/routes/admin-pages.workers-test.ts` — the featured-run-over badge assertion (`:313`) becomes the new status column, and the "not featured on the home page until you say so" copy (`:361`) becomes whatever the announce toggle says.
 
 Extending the existing workers suites — `src/db/show-state.workers-test.ts`, `src/routes/admin-shows.workers-test.ts`, `src/routes/home-past-shows.workers-test.ts`, `src/routes/public-pages.workers-test.ts`, `src/routes/happy-paths.workers-test.ts`:
