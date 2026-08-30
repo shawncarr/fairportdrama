@@ -48,6 +48,8 @@ The rename is load-bearing. The column was always an editorial "promote this" ch
 
 `is_highlighted` is untouched. It still orders the past-productions row on the home page.
 
+The rename is scoped to `shows`. `isCurrent` is also a field on member offices — derived from `endYear === null` at `queries.ts:218` and read in `members.tsx` and `offices.workers-test.ts` — and has nothing to do with productions. A project-wide find and replace would corrupt it.
+
 ### 2. Company vocabulary
 
 ```ts
@@ -84,13 +86,15 @@ This matches how every other vocabulary in the codebase is expressed — `SHOW_C
 | **announced** | Upcoming | Past |
 | **not announced** | Draft — appears nowhere public | Past |
 
-`getCurrentShow` is replaced by `getPromotedShows(db)`, returning the Upcoming set ordered by first performance date ascending, with dateless shows sorted last. `getPastShows` becomes "every date is in the past", ordered by year descending, then last performance descending, then title. The current ordering is `desc(shows.year)` alone, which is ambiguous the moment one year holds four shows.
+`getCurrentShow` is replaced by `getPromotedShows(db)`, returning the Upcoming set ordered by first performance date ascending, with dateless shows sorted last. `getPastShows` becomes "has at least one performance and the last one is in the past", ordered by year descending, then last performance descending, then title. The null guard matters: phrased as "every date is in the past" it is vacuously true of a show with no dates at all, which would drag dateless drafts into the archive and the sitemap and quietly defeat the draft rule. It matches the existing `lastPerformanceDate IS NOT NULL AND < today` guard at `queries.ts:107`. The current ordering is `desc(shows.year)` alone, which is ambiguous the moment one year holds four shows.
+
+Both queries project `firstPerformance` and `lastPerformance` as correlated subqueries, the same shape as the existing `lastPerformanceDate` at `queries.ts:39`. They need those columns to order by regardless, and projecting them is also what keeps the card date line off an N+1: no card fetches its own performances. `getPerformances` stays a single call, for the hero and the show page, which need the whole schedule rather than its endpoints.
 
 `getLastClosedAnnouncedShow(db)` returns the single most recently closed announced show, for the home page fallback in section 4. It needs its own announced filter and cannot reuse `getPastShows`, which by then includes unannounced past shows.
 
 A show with no performance dates yet is legitimately announceable — the club announces a title before the schedule is locked — and renders as "Dates to be announced".
 
-`formatShowDates([])` returns an empty string (`src/lib/dates.ts:42`), so the fallback text has to come from somewhere. A new `showDateLine(performances)` in `src/lib/dates.ts` returns the range or "Dates to be announced", and the hero, the card, and the show page all call it — otherwise the three drift into three different phrasings.
+`formatShowDates([])` returns an empty string (`src/lib/dates.ts:18`), so the fallback text has to come from somewhere. That function already reads only the earliest and latest date out of the list it is handed, so it splits: `formatDateRange(first, last)` does the formatting, `formatShowDates(performances)` delegates to it and keeps its current signature and callers, and a new `showDateLine(first, last)` returns the range or "Dates to be announced" when `first` is null. Cards call `showDateLine` with the projected columns; the hero and the show page keep calling `formatShowDates` with the schedule they already load. One implementation, so the three sites cannot drift into three phrasings.
 
 ### 4. Home page
 
@@ -133,6 +137,8 @@ The shows list at `/admin/shows` gains a derived status column (Draft, Upcoming,
 
 `ShowInput` gains `company: ShowCompany | null`, and the create and edit forms gain a select offering None plus each `SHOW_COMPANY_LABEL` entry.
 
+`createShow` sets `isCurrent: false` on insert (`src/services/shows.ts:71`) and becomes `isAnnounced: false`. Its doc comment already explains why a new show is not promoted — creating the record and announcing it are separate decisions — and that reasoning survives the rename intact.
+
 `POST /admin/shows/:id/feature` (`admin.tsx:4048`) is renamed to `POST /admin/shows/:id/announce`, and its `featured` form field to `announced`. It is an admin-only form target with no external inbound links, so the path can change outright rather than being kept as a redirect.
 
 Every one of these writes goes through `writeWithAudit`, as all mutations in this codebase do.
@@ -148,6 +154,11 @@ Every one of these writes goes through `writeWithAudit`, as all mutations in thi
 All four seeded shows have performance rows, so the new date-driven rules strand nothing on an existing database.
 
 ## Testing
+
+Two existing suites assert exactly the behavior this design removes and go red the moment `setAnnounced` lands. They are rewritten, not extended:
+
+- `src/services/shows.workers-test.ts` — "is exclusive, so the home page never has to pick between two" (`:135`) becomes its inverse: announcing a second show leaves the first announced. "records which show replaced which" (`:155`) asserts a `featuredShow: { before, after }` diff that no longer exists and becomes an `isAnnounced` diff. "can clear the feature entirely" (`:143`) becomes un-announcing one show.
+- `src/routes/admin-pages.workers-test.ts` — the featured-run-over badge assertion (`:313`) becomes the new status column, and the "not featured on the home page until you say so" copy (`:361`) becomes whatever the announce toggle says.
 
 Extending the existing workers suites — `src/db/show-state.workers-test.ts`, `src/routes/admin-shows.workers-test.ts`, `src/routes/home-past-shows.workers-test.ts`, `src/routes/public-pages.workers-test.ts`, `src/routes/happy-paths.workers-test.ts`:
 
