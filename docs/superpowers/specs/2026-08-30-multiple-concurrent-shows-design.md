@@ -12,7 +12,7 @@ The four shows are four independent productions with their own titles, scripts, 
 The single-show assumption lives in five places:
 
 - `shows.is_current`, a boolean read by `getCurrentShow` with `.where(eq(shows.isCurrent, true)).limit(1)` (`src/db/queries.ts:62`).
-- `setFeaturedShow` (`src/services/shows.ts:147`), which enforces exclusivity by clearing the flag on every other row before setting it on one.
+- `setFeaturedShow` (`src/services/shows.ts:152`), which enforces exclusivity by clearing the flag on every other row before setting it on one.
 - The home page hero, built around a single show object (`src/routes/home.tsx:16`).
 - `/shows/current`, which 302s to that one show (`src/routes/shows.tsx:32`), linked from Header (`src/components/Header.tsx:14`) and Footer (`src/components/Footer.tsx:21`) as "Current Show".
 - `getPastShows` (`src/db/queries.ts:104`), which defines past as `NOT is_current OR the run has ended` — so every show that is not the featured one is archive.
@@ -31,7 +31,7 @@ Double-casting a single production. The two early spring shows are separate prod
 
 ### 1. Schema
 
-One hand-written migration.
+One migration, producing this SQL.
 
 ```sql
 ALTER TABLE shows RENAME COLUMN is_current TO is_announced;
@@ -40,7 +40,9 @@ DROP INDEX idx_shows_current;
 CREATE INDEX idx_shows_announced ON shows(is_announced);
 ```
 
-Hand-written rather than generated: `drizzle-kit generate` emits drop-and-recreate for a column rename, which loses the data.
+Generate it with `npm run db:generate` rather than writing the file by hand. Drizzle-kit cannot tell a rename from a drop-plus-add, so it prompts: answer that `is_announced` is **renamed from** `is_current`, not created. Answering "created" emits a drop and an add, which discards the flag on every existing row.
+
+The generated file must be checked before it is applied. It should contain `ALTER TABLE ... RENAME COLUMN`, and `drizzle/meta/0004_snapshot.json` and `drizzle/meta/_journal.json` must both be updated alongside it. Every migration in `drizzle/` has a matching snapshot, and a migration that skips that bookkeeping leaves the next `db:generate` diffing against a snapshot that still holds `is_current` — so it emits a spurious drop and re-add of the column. If drizzle-kit will not produce the rename, the SQL and the snapshot both have to be hand-written; the SQL alone is not enough.
 
 The rename is load-bearing. The column was always an editorial "promote this" choice rather than a statement of fact, and both `src/db/queries.ts:29` and `src/lib/dates.ts:38` already carry comments about it drifting — the spring 2026 production stayed flagged current for five months after closing. Renaming it to what it means forces the compiler to walk every call site, and `is_announced` no longer implies uniqueness the way `is_current` does.
 
@@ -84,7 +86,11 @@ This matches how every other vocabulary in the codebase is expressed — `SHOW_C
 
 `getCurrentShow` is replaced by `getPromotedShows(db)`, returning the Upcoming set ordered by first performance date ascending, with dateless shows sorted last. `getPastShows` becomes "every date is in the past", ordered by year descending, then last performance descending, then title. The current ordering is `desc(shows.year)` alone, which is ambiguous the moment one year holds four shows.
 
+`getLastClosedAnnouncedShow(db)` returns the single most recently closed announced show, for the home page fallback in section 4. It needs its own announced filter and cannot reuse `getPastShows`, which by then includes unannounced past shows.
+
 A show with no performance dates yet is legitimately announceable — the club announces a title before the schedule is locked — and renders as "Dates to be announced".
+
+`formatShowDates([])` returns an empty string (`src/lib/dates.ts:42`), so the fallback text has to come from somewhere. A new `showDateLine(performances)` in `src/lib/dates.ts` returns the range or "Dates to be announced", and the hero, the card, and the show page all call it — otherwise the three drift into three different phrasings.
 
 ### 4. Home page
 
@@ -103,8 +109,11 @@ When nothing is upcoming, the hero falls back to the most recently closed announ
 - **New `GET /shows`** — an Upcoming section over a Past section.
 - **`GET /shows/past`** — 301 to `/shows`. Permanent, because it is an indexed URL being consolidated rather than a temporary move.
 - **`GET /shows/current`** — 302 to the soonest upcoming show, or to `/shows` when nothing is upcoming. Links already shared still land on a show.
-- **`GET /shows/:slug`** — the hero gradient condition changes from `show.isCurrent && !closed` to `show.isAnnounced && !closed`; a company badge is added.
-- **Header and Footer** — "Current Show" becomes "Shows", pointing at `/shows`.
+- **`GET /shows/:slug`** — `show.isCurrent && !closed` becomes `show.isAnnounced && !closed` in **both** places it appears: the hero gradient (`shows.tsx:108`) and the Get Tickets button (`shows.tsx:162`). The second is a deliberate behavior change — every announced running show now offers its own ticket link, where previously only the one featured show did. That is the point of the change, since concurrent productions sell tickets concurrently. A company badge is added.
+
+**Navigation.** Header's "Shows" is already a parent item with two children, `Current Show` and `Past Shows` (`src/components/Header.tsx:11-16`). It collapses to a plain top-level link to `/shows` with no children: with one index page there is nothing left for a dropdown to hold, and a "Past Shows" child pointing at a 301 would be worse than none. Footer's two quick links (`src/components/Footer.tsx:21-22`) collapse to one "Shows" entry the same way.
+
+**Internal links to `/shows/past`.** Three more exist and all move to `/shows`, so no in-app link bounces through the permanent redirect: the "Browse Past Shows" button in the closed-run hero (`home.tsx:87`), the "All shows" link below the past-productions row (`home.tsx:289`), and "Browse Shows" on the 404 page (`system.tsx:500`). The `/shows/current` fallback redirect at `shows.tsx:33` currently targets `/shows/past` and moves too.
 
 ### 6. Draft gate
 
@@ -123,6 +132,8 @@ A new `src/components/ShowCard.tsx`, used by the home page strip, the `/shows` u
 The shows list at `/admin/shows` gains a derived status column (Draft, Upcoming, Closed) and a company column, replacing the current featured/featured-run-over badge. The show detail "Home page" panel becomes an announce toggle, and its copy loses "only one can be".
 
 `ShowInput` gains `company: ShowCompany | null`, and the create and edit forms gain a select offering None plus each `SHOW_COMPANY_LABEL` entry.
+
+`POST /admin/shows/:id/feature` (`admin.tsx:4048`) is renamed to `POST /admin/shows/:id/announce`, and its `featured` form field to `announced`. It is an admin-only form target with no external inbound links, so the path can change outright rather than being kept as a redirect.
 
 Every one of these writes goes through `writeWithAudit`, as all mutations in this codebase do.
 
@@ -148,7 +159,9 @@ Extending the existing workers suites — `src/db/show-state.workers-test.ts`, `
 - A draft show appears on neither the home page, nor `/shows`, nor the sitemap, and `/shows/:slug` returns 404 for it.
 - A past show remains reachable at `/shows/:slug` whether or not it is announced.
 - Past shows within one year order by last performance date descending.
+- Two concurrent announced running shows each render their own Get Tickets link on their own show page.
 - `/shows/current` and `/shows/past` redirect as specified.
+- No rendered page links to `/shows/past` or `/shows/current`; the nav points at `/shows`.
 
 A unit test asserts every `SHOW_COMPANY` value has a `SHOW_COMPANY_LABEL` entry, so a company cannot ship without a label.
 
@@ -166,6 +179,7 @@ src/routes/system.tsx             sitemap from getIndexableShows
 src/components/Header.tsx         "Shows" -> /shows
 src/components/Footer.tsx         "Shows" -> /shows
 src/components/ShowCard.tsx       new, shared by home band and both /shows sections
+src/lib/dates.ts                  showDateLine helper
 seed/content.sql                  column rename
 scripts/build-seed.mjs            column rename
 scripts/verify-seed.mjs           column rename
