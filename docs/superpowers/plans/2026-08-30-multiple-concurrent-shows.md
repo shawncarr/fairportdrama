@@ -1010,6 +1010,12 @@ describe('the shows index', () => {
 
 That last test covers the plan's one deliberate behavior change on the show page. The file already imports `eq`, `shows`, and `showPerformances`; add an `iso` helper if it has none, and add `signIn` to the `~/test/session` import plus `APP_ROLE` from `~/db/schema/governance` for the draft-preview test.
 
+The top-level `beforeEach` at `:149` clears `shows` and `show_performances` between every test, so a self-contained block sees only its own rows — which is what makes the `/shows/current` destination assertion safe to write.
+
+- [ ] **Step 1a: Rename this file's own `isCurrent` seed field**
+
+`seedShow` at `:94` writes `isCurrent: opts.featured`. That column no longer exists, so nothing in this file can pass until it becomes `isAnnounced: opts.featured`. Do it here — the plan originally deferred it to task 11, which is wrong: this file passing is this task's gate.
+
 - [ ] **Step 1b: Repoint the two existing tests that fetch `/shows/past`**
 
 `:301` ("appears in the past shows archive even while still flagged current") and `:313` ("the archive says so rather than showing an empty grid") both call `body('/shows/past')`, which now 301s and makes `body` throw. Change both to `body('/shows')`. Rename the first to drop "flagged current", which is no longer a thing.
@@ -1611,7 +1617,7 @@ Expected: all green.
 
 - [ ] **Step 3b: Rename the last two seed fields**
 
-Two test files set `isCurrent` in their own local seed helpers and are not covered by any earlier task: `src/routes/public-pages.workers-test.ts:94` (`isCurrent: opts.featured`) and `src/routes/admin-pages.workers-test.ts:69`. Both are mechanical renames to `isAnnounced`, but the "Expected: PASS" step in tasks 6 and 9 depends on them.
+`src/routes/admin-pages.workers-test.ts:69` sets `isCurrent` in its own local seed helper. Rename it to `isAnnounced`. (`public-pages.workers-test.ts:94` has the same problem but is renamed in task 6, whose gate depends on it.)
 
 - [ ] **Step 4: Confirm no stale links or names remain**
 
