@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
 import { getDb, getShow } from '~/db/queries';
-import { showCast, showPerformances, shows } from '~/db/schema/content';
+import { SHOW_COMPANY, showCast, showPerformances, shows } from '~/db/schema/content';
 import { auditEvents } from '~/db/schema/governance';
 import { AUDIT_ACTOR_KIND, type Actor } from '~/lib/audit/actor';
 import { AUDIT_ACTION } from '~/lib/audit/constants';
@@ -59,6 +59,20 @@ describe('creating a show', () => {
       ok: true,
       id: 'into-the-woods-2026',
     });
+  });
+
+  it('stores the company that staged it', async () => {
+    await createShow(db(), staff, { ...input, company: SHOW_COMPANY.Jv });
+    const [row] = await db().select().from(shows);
+
+    expect(row!.company).toBe('jv');
+  });
+
+  it('leaves the company null for a show the whole club stages', async () => {
+    await createShow(db(), staff, input);
+    const [row] = await db().select().from(shows);
+
+    expect(row!.company).toBeNull();
   });
 
   it('does not announce it, so creating and announcing stay separate', async () => {
@@ -130,6 +144,9 @@ describe('announcing a show', () => {
   beforeEach(async () => {
     await createShow(db(), staff, input);
     await createShow(db(), staff, { ...input, title: 'Matilda', year: 2027 });
+    // A third show nobody announces. Without a row that must stay false, a
+    // write that announced every row would satisfy every assertion here.
+    await createShow(db(), staff, { ...input, title: 'Bystander', year: 2028 });
     await env.DB.exec('DELETE FROM audit_events');
   });
 
@@ -137,11 +154,12 @@ describe('announcing a show', () => {
     await setAnnounced(db(), staff, 'into-the-woods-2026', true);
     await setAnnounced(db(), staff, 'matilda-2027', true);
 
-    const announced = (await db().select().from(shows)).filter((s) => s.isAnnounced);
-    expect(announced.map((s) => s.id).sort()).toEqual([
+    const rows = await db().select().from(shows);
+    expect(rows.filter((s) => s.isAnnounced).map((s) => s.id).sort()).toEqual([
       'into-the-woods-2026',
       'matilda-2027',
     ]);
+    expect(rows.find((s) => s.id === 'bystander-2028')!.isAnnounced).toBe(false);
   });
 
   it('un-announces one show without touching the others', async () => {
