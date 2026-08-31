@@ -95,7 +95,7 @@ export async function createShow(
       action: AUDIT_ACTION.ShowCreated,
       targetKind: AUDIT_ENTITY_KIND.Show,
       targetId: id,
-      payload: { title, season: input.season, year: input.year },
+      payload: { title, season: input.season, year: input.year, company: input.company },
     },
   );
 
@@ -319,7 +319,12 @@ export async function deleteShow(
       targetKind: AUDIT_ENTITY_KIND.Show,
       targetId: id,
       // Kept because a deleted row cannot be joined against afterwards.
-      payload: { title: current.title, season: current.season, year: current.year },
+      payload: {
+        title: current.title,
+        season: current.season,
+        year: current.year,
+        company: current.company,
+      },
     },
   );
 

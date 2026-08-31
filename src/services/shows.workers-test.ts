@@ -5,7 +5,7 @@ import { getDb, getShow } from '~/db/queries';
 import { SHOW_COMPANY, showCast, showPerformances, shows } from '~/db/schema/content';
 import { auditEvents } from '~/db/schema/governance';
 import { AUDIT_ACTOR_KIND, type Actor } from '~/lib/audit/actor';
-import { AUDIT_ACTION } from '~/lib/audit/constants';
+import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import {
   createShow,
   deleteShow,
@@ -178,6 +178,28 @@ describe('announcing a show', () => {
     const [audit] = await audits();
     expect(audit!.diff).toEqual({ isAnnounced: { before: false, after: true } });
     expect(audit!.targetId).toBe('into-the-woods-2026');
+    // Without these an announcement could file itself as, say, a deleted
+    // news item and the suite would not notice. The audit log is the record.
+    expect(audit!.action).toBe(AUDIT_ACTION.ShowUpdated);
+    expect(audit!.targetKind).toBe(AUDIT_ENTITY_KIND.Show);
+  });
+
+  it('ignores an unknown show rather than throwing at the route', async () => {
+    expect(await setAnnounced(db(), staff, 'nope', true)).toEqual({ changed: false });
+    expect(await audits()).toHaveLength(0);
+  });
+
+  it('stamps updatedAt so an announcement is not an invisible edit', async () => {
+    const before = (await db().select().from(shows)).find(
+      (r) => r.id === 'into-the-woods-2026',
+    )!.updatedAt;
+    await new Promise((r) => setTimeout(r, 1100));
+    await setAnnounced(db(), staff, 'into-the-woods-2026', true);
+
+    const after = (await db().select().from(shows)).find(
+      (r) => r.id === 'into-the-woods-2026',
+    )!.updatedAt;
+    expect(after > before).toBe(true);
   });
 
   it('does nothing when the show is already in that state', async () => {
