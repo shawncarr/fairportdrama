@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { SHOW_COMPANY, SHOW_COMPANY_LABEL } from '~/db/schema/content';
+import { SHOW_COMPANY } from '~/db/schema/content';
+import { SHOW_COMPANY_LABEL } from './shows';
 
 describe('show companies', () => {
   it('gives every company a display label', () => {

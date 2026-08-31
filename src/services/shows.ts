@@ -1,11 +1,13 @@
 import { asc, eq, ne, sql } from 'drizzle-orm';
 import type { DB } from '~/db/queries';
 import {
+  SHOW_COMPANY,
   showCast,
   showCrew,
   showGalleryImages,
   showPerformances,
   shows,
+  type ShowCompany,
 } from '~/db/schema/content';
 import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import { buildDiff, isEmptyDiff } from '~/lib/audit/diff';
@@ -15,6 +17,21 @@ import { generateId } from '~/lib/id';
 import { slugify } from './news';
 
 export const DEFAULT_VENUE = 'Fairport High School Auditorium';
+
+export const SHOW_COMPANY_LABEL: Record<ShowCompany, string> = {
+  [SHOW_COMPANY.Jv]: 'JV',
+  [SHOW_COMPANY.Varsity]: 'Varsity',
+};
+
+/**
+ * Whether a submitted value is a company.
+ *
+ * `$type<ShowCompany>()` is a compile-time assertion and the column is plain
+ * TEXT with no CHECK, so a cast at the form boundary would let any string
+ * into the database. Mirrors `isNewsCategory` in `./news.ts`.
+ */
+export const isShowCompany = (v: string): v is ShowCompany =>
+  Object.values(SHOW_COMPANY).includes(v as ShowCompany);
 
 export interface ShowInput {
   title: string;

@@ -112,21 +112,6 @@ export const memberRoles = sqliteTable(
 export const SHOW_COMPANY = { Jv: 'jv', Varsity: 'varsity' } as const;
 export type ShowCompany = (typeof SHOW_COMPANY)[keyof typeof SHOW_COMPANY];
 
-export const SHOW_COMPANY_LABEL: Record<ShowCompany, string> = {
-  jv: 'JV',
-  varsity: 'Varsity',
-};
-
-/**
- * Whether a submitted value is a company.
- *
- * `$type<ShowCompany>()` is a compile-time assertion and the column is plain
- * TEXT with no CHECK, so a cast at the form boundary would let any string
- * into the database. Mirrors `isNewsCategory` in `src/services/news.ts:173`.
- */
-export const isShowCompany = (value: string): value is ShowCompany =>
-  Object.values(SHOW_COMPANY).includes(value as ShowCompany);
-
 export const shows = sqliteTable(
   'shows',
   {
