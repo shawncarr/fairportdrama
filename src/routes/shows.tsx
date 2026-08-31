@@ -11,12 +11,12 @@ import {
   getShow,
   getSponsors,
 } from '~/db/queries';
-import { ShowCard } from '~/components/ShowCard';
+import { ShowCard, toShowCardView } from '~/components/ShowCard';
 import { SponsorGrid, type SponsorView } from '~/components/SponsorGrid';
 import { ShareButtons } from '~/components/ShareButtons';
 import { PhotoGallery } from '~/components/PhotoGallery';
 import { IMAGE_VARIANT, ogImageUrl } from '~/lib/images';
-import { hasClosed, showDateLine } from '~/lib/dates';
+import { showDateLine } from '~/lib/dates';
 import { can } from '~/lib/auth/permissions';
 import { SHOW_COMPANY_LABEL } from '~/services/shows';
 import type { ShowCastTier } from '~/db/schema/content';
@@ -45,16 +45,6 @@ showRoutes.get('/shows', async (c) => {
   const images = c.get('images');
   const [upcoming, past] = await Promise.all([getPromotedShows(db), getPastShows(db)]);
 
-  const toCard = (show: (typeof past)[number]) => ({
-    id: show.id,
-    title: show.title,
-    season: show.season,
-    company: show.company,
-    posterUrl: images.deliveryUrl(show.posterImageId, IMAGE_VARIANT.Poster),
-    firstPerformance: show.firstPerformance,
-    lastPerformance: show.lastPerformance,
-  });
-
   return c.render(
     <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-16 space-y-16">
       <h1 class="font-display text-4xl font-bold text-neutral-900">Shows</h1>
@@ -64,7 +54,7 @@ showRoutes.get('/shows', async (c) => {
           <h2 class="font-display text-3xl font-bold text-neutral-900 mb-8">Upcoming</h2>
           <div class="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
             {upcoming.map((show) => (
-              <ShowCard show={toCard(show)} />
+              <ShowCard show={toShowCardView(show, images)} />
             ))}
           </div>
         </section>
@@ -80,7 +70,7 @@ showRoutes.get('/shows', async (c) => {
         ) : (
           <div class="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
             {past.map((show) => (
-              <ShowCard show={toCard(show)} dates={false} />
+              <ShowCard show={toShowCardView(show, images)} dates={false} />
             ))}
           </div>
         )}
@@ -114,7 +104,7 @@ showRoutes.get('/shows/:slug', async (c) => {
     getSponsors(db, { showId: show.id }),
   ]);
 
-  const closed = hasClosed(performances);
+  const closed = show.closed;
 
   const heroUrl = images.deliveryUrl(show.heroImageId, IMAGE_VARIANT.Hero);
   const posterUrl = images.deliveryUrl(show.posterImageId, IMAGE_VARIANT.Poster);

@@ -1,4 +1,5 @@
 import { type ShowCompany } from '~/db/schema/content';
+import { IMAGE_VARIANT, type ImageStore } from '~/lib/images';
 import { SHOW_COMPANY_LABEL } from '~/services/shows';
 import { showDateLine } from '~/lib/dates';
 
@@ -11,6 +12,34 @@ export interface ShowCardView {
   firstPerformance: string | null;
   lastPerformance: string | null;
 }
+
+/**
+ * A projected show row, as card props.
+ *
+ * Lives here rather than in each route so the home page's band and both
+ * sections of the shows index cannot drift into three slightly different
+ * mappings of the same row.
+ */
+export const toShowCardView = (
+  show: {
+    id: string;
+    title: string;
+    season: string;
+    company: ShowCompany | null;
+    posterImageId: string | null;
+    firstPerformance: string | null;
+    lastPerformance: string | null;
+  },
+  images: ImageStore,
+): ShowCardView => ({
+  id: show.id,
+  title: show.title,
+  season: show.season,
+  company: show.company,
+  posterUrl: images.deliveryUrl(show.posterImageId, IMAGE_VARIANT.Poster),
+  firstPerformance: show.firstPerformance,
+  lastPerformance: show.lastPerformance,
+});
 
 /**
  * One production, as a card.

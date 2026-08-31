@@ -15,6 +15,7 @@ import {
   sponsors,
   spiritWear,
   MEMBER_VISIBILITY,
+  SHOW_COMPANY,
 } from '~/db/schema/content';
 import { APP_ROLE } from '~/db/schema/governance';
 import { showDateLine } from '~/lib/dates';
@@ -356,7 +357,36 @@ describe('the shows index', () => {
     // so `toContain('Upcoming')` and an indexOf comparison against it both
     // pass with the entire Upcoming section deleted.
     expect(html).toContain('>Upcoming<');
+    // Assert presence first: indexOf returns -1 when absent, and -1 is less
+    // than any real index, so the comparison alone passes for a show that
+    // never rendered.
+    expect(html).toContain('upcoming-show');
+    expect(html).toContain('archived-show');
     expect(html.indexOf('upcoming-show')).toBeLessThan(html.indexOf('archived-show'));
+  });
+
+  it('opens the heading order at h1', async () => {
+    // The sections are h2 and ShowCard's title is h3, so without this the
+    // document outline starts at 2.
+    expect(await body('/shows')).toContain('<h1');
+  });
+
+  it('shows the company label on the show page hero, never the slug', async () => {
+    await db()
+      .update(shows)
+      .set({ company: SHOW_COMPANY.Jv })
+      .where(eq(shows.id, 'upcoming-show'));
+
+    // The hero has its own badge markup, separate from ShowCard's.
+    const html = await body('/shows/upcoming-show');
+    expect(html).toContain('>JV<');
+    expect(html).not.toContain('>jv<');
+  });
+
+  it('hides the Upcoming section when nothing is upcoming', async () => {
+    await db().delete(shows).where(eq(shows.id, 'upcoming-show'));
+
+    expect(await body('/shows')).not.toContain('>Upcoming<');
   });
 
   it('dates the upcoming cards and leaves the archive undated', async () => {
@@ -373,6 +403,10 @@ describe('the shows index', () => {
   });
 
   it('sends /shows/current to the soonest upcoming show', async () => {
+    // A second, later promoted show: with only one, picking the last
+    // promoted row instead of the first gives the same answer.
+    await seed('later-show', { announced: true, date: iso(40) });
+
     const res = await get('/shows/current');
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('/shows/upcoming-show');
