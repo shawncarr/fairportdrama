@@ -784,10 +784,65 @@ rule wrong, so announcing is now one row and one honest diff."
 
 **Files:**
 - Create: `src/components/ShowCard.tsx`
+- Test: `src/components/ShowCard.test.ts` (new)
 
 Three card renderings are about to exist — the home band, `/shows` upcoming, `/shows` past. Two near-duplicates are already inline in `home.tsx:296-321` and `shows.tsx:52-77`; without consolidating, this change adds a third.
 
-- [ ] **Step 1: Write the component**
+- [ ] **Step 1: Write the failing test**
+
+Typecheck is globally red until task 10, so "no new error in this file" is not a gate you can lean on. Give the card a real one. Components here are tested by rendering to a string — see `src/components/PhotoGallery.test.ts` for the pattern, including the `toString()` cast Hono JSX needs.
+
+Create `src/components/ShowCard.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { ShowCard, type ShowCardView } from './ShowCard';
+import { SHOW_COMPANY } from '~/db/schema/content';
+
+const render = (show: ShowCardView, dates?: boolean) =>
+  (ShowCard({ show, dates }) as unknown as { toString(): string }).toString();
+
+const base: ShowCardView = {
+  id: 'the-lightning-thief-2026',
+  title: 'The Lightning Thief',
+  season: 'Spring 2026',
+  company: null,
+  posterUrl: null,
+  firstPerformance: '2026-03-05',
+  lastPerformance: '2026-03-07',
+};
+
+describe('ShowCard', () => {
+  it('shows the company label and never the stored slug', () => {
+    const html = render({ ...base, company: SHOW_COMPANY.Jv });
+
+    expect(html).toContain('JV');
+    // The slugs are provisional. One reaching a page is the failure this
+    // whole label indirection exists to prevent.
+    expect(html).not.toContain('>jv<');
+  });
+
+  it('renders no badge for a show the whole club stages', () => {
+    expect(render(base)).not.toContain('rounded-full');
+  });
+
+  it('gives a dateless show a line saying so', () => {
+    const html = render({ ...base, firstPerformance: null, lastPerformance: null });
+
+    expect(html).toContain('Dates to be announced');
+  });
+
+  it('omits the date line for the archive', () => {
+    expect(render(base, false)).not.toContain('March 5-7, 2026');
+  });
+
+  it('links to the show', () => {
+    expect(render(base)).toContain('href="/shows/the-lightning-thief-2026"');
+  });
+});
+```
+
+- [ ] **Step 2: Write the component**
 
 Create `src/components/ShowCard.tsx`:
 
@@ -852,15 +907,17 @@ Note it renders `SHOW_COMPANY_LABEL[show.company]` and never the slug. The slugs
 
 The heading is `h3` because both call sites nest it under a section `h2`.
 
-- [ ] **Step 2: Typecheck**
+- [ ] **Step 3: Run the test**
 
-Run: `npm run typecheck`
-Expected: still failing on the route files not yet updated, but with no new error inside `ShowCard.tsx`.
+Run: `npx vitest run src/components/ShowCard.test.ts`
+Expected: PASS, 5 tests. Then `npm run test:unit` to confirm nothing else moved.
 
-- [ ] **Step 3: Commit**
+Importing `ShowCard` pulls in `~/services/shows` for `SHOW_COMPANY_LABEL`, which reaches drizzle and the audit helpers. That imports fine under node — `src/services/show-company.test.ts` already does it — but if it does not, say so rather than working around it.
+
+- [ ] **Step 4: Commit**
 
 ```bash
-git add src/components/ShowCard.tsx
+git add src/components/ShowCard.tsx src/components/ShowCard.test.ts
 git commit -m "feat(shows): add the card the season band and index share"
 ```
 
