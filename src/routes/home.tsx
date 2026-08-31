@@ -39,10 +39,11 @@ home.get('/', async (c) => {
     getSponsors(db, { showId: null }),
   ]);
 
-  const promotedIds = new Set([
-    ...promoted.map((s) => s.id),
-    ...(featured ? [featured.id] : []),
-  ]);
+  // Only the wrap hero can collide. `getPastShows` returns closed runs and
+  // `getPromotedShows` returns runs that have not closed, so the two sets are
+  // disjoint by construction - spreading `promoted` in here would filter
+  // nothing and read as an invariant the code cannot actually enforce.
+  const promotedIds = new Set(featured ? [featured.id] : []);
 
   /**
    * Past productions for the home page.
@@ -58,7 +59,11 @@ home.get('/', async (c) => {
     .sort(
       (a, b) =>
         Number(b.isHighlighted) - Number(a.isHighlighted) ||
-        (b.lastPerformance ?? '').localeCompare(a.lastPerformance ?? ''),
+        (b.lastPerformance ?? '') < (a.lastPerformance ?? '')
+          ? -1
+          : (b.lastPerformance ?? '') > (a.lastPerformance ?? '')
+            ? 1
+            : 0,
     )
     .slice(0, 3);
 

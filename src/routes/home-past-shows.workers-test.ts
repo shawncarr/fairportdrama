@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { getDb } from '~/db/queries';
-import { showPerformances, shows } from '~/db/schema/content';
+import { SHOW_COMPANY, showPerformances, shows } from '~/db/schema/content';
 import { get, resetTables } from '~/test/session';
 
 /**
@@ -164,14 +164,35 @@ describe('concurrent shows', () => {
 
     const html = await body('/');
 
-    // Presence before position: indexOf returns -1 for a show that never
-    // rendered, and -1 is less than any real index, so the comparisons
-    // alone pass for a page missing both shows.
-    expect(html).toContain('varsity-show');
-    expect(html).toContain('jv-show');
-    expect(html).toContain('Also this season');
-    expect(html.indexOf('varsity-show')).toBeLessThan(html.indexOf('Also this season'));
-    expect(html.indexOf('Also this season')).toBeLessThan(html.indexOf('jv-show'));
+    // Match the links, not the bare ids. The hero's title is interpolated
+    // into <meta name="description"> (home.tsx:449), so `indexOf('varsity-
+    // show')` finds it in <head> and compares as "before" everything in the
+    // body no matter what the page renders.
+    const band = html.indexOf('Also this season');
+    const heroLink = html.indexOf('href="/shows/varsity-show"');
+    const bandLink = html.indexOf('href="/shows/jv-show"');
+
+    expect(band).toBeGreaterThan(-1);
+    expect(heroLink).toBeGreaterThan(-1);
+    expect(bandLink).toBeGreaterThan(-1);
+
+    expect(heroLink).toBeLessThan(band);
+    expect(band).toBeLessThan(bandLink);
+
+    // The hero must not also be dealt into the band - that is the duplicated
+    // production this whole filter exists to prevent.
+    expect(html.slice(band)).not.toContain('href="/shows/varsity-show"');
+  });
+
+  it('shows the company label on the home hero, never the slug', async () => {
+    await seedShow('jv-show', { year: 2027, announced: true, lastDate: iso(10) });
+    await db().update(shows).set({ company: SHOW_COMPANY.Jv });
+
+    // The hero's badge is a third copy of this markup, separate from
+    // ShowCard's and the show page's.
+    const html = await body('/');
+    expect(html).toContain('>JV<');
+    expect(html).not.toContain('>jv<');
   });
 
   it('hides the band when only one show is upcoming', async () => {
