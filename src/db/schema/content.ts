@@ -98,6 +98,35 @@ export const memberRoles = sqliteTable(
   ],
 );
 
+/**
+ * Which company staged a production.
+ *
+ * NULL for a production the club stages as one group - the fall and late
+ * spring shows - and set only when a slot is split, as early spring is.
+ *
+ * The slugs are provisional; the club has not settled on what to call the two
+ * early spring companies. Display text is deliberately not the stored value,
+ * so renaming JV to whatever is chosen is an edit to SHOW_COMPANY_LABEL and
+ * nothing else. Only replacing a slug needs a migration.
+ */
+export const SHOW_COMPANY = { Jv: 'jv', Varsity: 'varsity' } as const;
+export type ShowCompany = (typeof SHOW_COMPANY)[keyof typeof SHOW_COMPANY];
+
+export const SHOW_COMPANY_LABEL: Record<ShowCompany, string> = {
+  jv: 'JV',
+  varsity: 'Varsity',
+};
+
+/**
+ * Whether a submitted value is a company.
+ *
+ * `$type<ShowCompany>()` is a compile-time assertion and the column is plain
+ * TEXT with no CHECK, so a cast at the form boundary would let any string
+ * into the database. Mirrors `isNewsCategory` in `src/services/news.ts:173`.
+ */
+export const isShowCompany = (value: string): value is ShowCompany =>
+  Object.values(SHOW_COMPANY).includes(value as ShowCompany);
+
 export const shows = sqliteTable(
   'shows',
   {
@@ -111,13 +140,14 @@ export const shows = sqliteTable(
     posterImageId: text('poster_image_id'),
     heroImageId: text('hero_image_id'),
     ogImageId: text('og_image_id'),
-    isCurrent: integer('is_current', { mode: 'boolean' }).notNull().default(false),
+    isAnnounced: integer('is_announced', { mode: 'boolean' }).notNull().default(false),
+    company: text('company').$type<ShowCompany>(),
     isHighlighted: integer('is_highlighted', { mode: 'boolean' })
       .notNull()
       .default(false),
     ...timestamps,
   },
-  (t) => [index('idx_shows_year').on(t.year), index('idx_shows_current').on(t.isCurrent)],
+  (t) => [index('idx_shows_year').on(t.year), index('idx_shows_announced').on(t.isAnnounced)],
 );
 
 export const showPerformances = sqliteTable(

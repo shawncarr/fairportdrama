@@ -170,7 +170,7 @@ if (sampleMember) {
   );
 }
 
-const current = shows.find((s) => s.data.isCurrent);
+const current = shows.find((s) => s.data.isAnnounced ?? s.data.isCurrent);
 if (current) {
   const row = sql(
     `SELECT title, synopsis, ticket_url FROM shows WHERE id='${current.id}'`,

@@ -178,7 +178,7 @@ emit('\n-- shows');
 for (const { id, data } of shows) {
   const images = data.images ?? {};
   emit(
-    `INSERT INTO shows (id,title,season,year,venue,synopsis,ticket_url,poster_image_id,hero_image_id,og_image_id,is_current,is_highlighted) VALUES (` +
+    `INSERT INTO shows (id,title,season,year,venue,synopsis,ticket_url,poster_image_id,hero_image_id,og_image_id,is_announced,is_highlighted) VALUES (` +
       [
         q(id),
         q(data.title),
@@ -192,7 +192,7 @@ for (const { id, data } of shows) {
         // `og` points into public/ on the old site rather than being colocated,
         // so it is looked up by its literal path.
         q(manifest[images.og] ?? null),
-        q(data.isCurrent ?? false),
+        q(data.isAnnounced ?? data.isCurrent ?? false),
         q(data.isHighlighted ?? false),
       ].join(',') +
       ');',
