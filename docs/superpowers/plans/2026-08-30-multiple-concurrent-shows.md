@@ -649,7 +649,9 @@ with:
 
 The first test is the regression this entire change exists to prevent. Update the file's imports, and rename `isCurrent` to `isAnnounced` in any seed helper it defines.
 
-One more test in the same file uses the deleted API and needs a rewrite, not a rename — `:224` `'decides whether the run reads as over'`, in `describe('performance dates')`. It calls `setFeaturedShow` and reads `getCurrentShow(db())!.state`, neither of which survives. Rewrite it against `getShow`, which now carries `closed`:
+One plain assertion elsewhere in the file also goes red: `:67`, in `describe('creating a show')`, reads `expect(row!.isCurrent).toBe(false)`. After task 1 that property is `undefined`, so the assertion fails rather than erroring. Rename it to `isAnnounced`, and retitle the test — "does not feature it" becomes "does not announce it".
+
+One more test uses the deleted API and needs a rewrite, not a rename — `:224` `'decides whether the run reads as over'`, in `describe('performance dates')`. It calls `setFeaturedShow` and reads `getCurrentShow(db())!.state`, neither of which survives. Rewrite it against `getShow`, which now carries `closed`:
 
 ```ts
   it('decides whether the run reads as over', async () => {
@@ -1093,7 +1095,11 @@ describe('concurrent shows', () => {
 
 The wrap assertion deliberately matches only `a wrap`. The template source reads `That&rsquo;s a wrap`, but the JSX transform decodes that entity at compile time and Hono escapes only `& < > ' "`, so the response body carries a literal U+2019 rather than `&rsquo;`. Matching the short substring sidesteps the question entirely.
 
-The new module-level `body` shares its name with three existing `const body = await (await get(...)).text()` bindings in this file — inside `listed()` and two tests. Shadowing is legal, so leave those alone; converting one in place would give you a temporal-dead-zone `ReferenceError` rather than the tidier code it looks like.
+The new module-level `body` shares its name with three existing `const body = await (await get(...)).text()` bindings in this file, at `:52` (inside `listed()`), `:109`, and `:149`. Shadowing is legal, so leave those bindings alone — converting one in place would give you a temporal-dead-zone `ReferenceError` rather than the tidier code it looks like.
+
+- [ ] **Step 1b: Repoint the archive test at the new index**
+
+`:149`, in `describe('the archive is unaffected')`, fetches `/shows/past` and asserts five show ids appear. After task 6 that path returns a 301 with an empty body — `get` uses `redirect: 'manual'` — so all five assertions fail. Change the path to `/shows`. This is the same breakage task 6 step 1b fixes in `public-pages.workers-test.ts`; this file needs it too, and "leave those bindings alone" above refers only to the `const body` shadowing, not to the URL.
 
 - [ ] **Step 2: Run and watch them fail**
 
