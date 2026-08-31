@@ -157,12 +157,18 @@ export async function getPastShows(db: DB) {
     .orderBy(sql`${lastPerformanceDate} DESC`, asc(shows.title));
 }
 
+/**
+ * Not a draft: announced, or finished.
+ *
+ * Anywhere a show's title can reach a visitor needs this, not just the show
+ * page. The route gate hides `/shows/:slug` for a draft, but a title rendered
+ * somewhere else is the same disclosure with a dead link attached.
+ */
+const notDraft = () => or(eq(shows.isAnnounced, true), closed())!;
+
 /** Every show with a public page: announced, or finished. Not drafts. */
 export async function getIndexableShows(db: DB) {
-  return db
-    .select({ id: shows.id })
-    .from(shows)
-    .where(or(eq(shows.isAnnounced, true), closed()));
+  return db.select({ id: shows.id }).from(shows).where(notDraft());
 }
 
 /**
@@ -422,16 +428,27 @@ export async function getIndexableMemberIds(db: DB) {
   return rows.map((r) => r.id);
 }
 
+/**
+ * A member's credits.
+ *
+ * Drafts are excluded. Without that, a student's public profile lists an
+ * unannounced production by title, with a link to a page that 404s - and
+ * who has been cast in a show the club has not announced is exactly the
+ * thing the announcement is gating.
+ */
 export async function getMemberShows(db: DB, memberId: string) {
   return db
     .select({ id: shows.id, title: shows.title, year: shows.year, season: shows.season })
     .from(shows)
     .where(
-      sql`${shows.id} IN (
-        SELECT show_id FROM show_cast WHERE member_id = ${memberId}
-        UNION
-        SELECT show_id FROM show_crew WHERE member_id = ${memberId}
-      )`,
+      and(
+        notDraft(),
+        sql`${shows.id} IN (
+          SELECT show_id FROM show_cast WHERE member_id = ${memberId}
+          UNION
+          SELECT show_id FROM show_crew WHERE member_id = ${memberId}
+        )`,
+      ),
     )
     .orderBy(desc(shows.year));
 }

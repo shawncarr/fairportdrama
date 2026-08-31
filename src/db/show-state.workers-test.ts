@@ -1,10 +1,18 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { SHOW_COMPANY, showPerformances, shows, type ShowCompany } from './schema/content';
+import {
+  SHOW_COMPANY,
+  members,
+  showCast,
+  showPerformances,
+  shows,
+  type ShowCompany,
+} from './schema/content';
 import {
   getDb,
   getIndexableShows,
   getLastClosedAnnouncedShow,
+  getMemberShows,
   getPastShows,
   getPromotedShows,
   getShow,
@@ -188,6 +196,24 @@ describe('getLastClosedAnnouncedShow', () => {
     await seedShow('jv', true, [iso(-5)]);
 
     expect((await getLastClosedAnnouncedShow(db()))!.id).toBe('jv');
+  });
+});
+
+describe('getMemberShows', () => {
+  it('leaves a draft off a member credit list', async () => {
+    await seedShow('announced-show', true, [iso(10)]);
+    await seedShow('draft-show', false, [iso(20)]);
+    await db().insert(members).values({ id: 'kid', name: 'A Student', grade: 'Junior' });
+    await db().insert(showCast).values([
+      { id: 'c1', showId: 'announced-show', memberId: 'kid', role: 'Lead' },
+      { id: 'c2', showId: 'draft-show', memberId: 'kid', role: 'Lead' },
+    ]);
+
+    // The route gate hides /shows/draft-show. A title on the student's own
+    // profile would disclose the same show, with a link that 404s.
+    expect((await getMemberShows(db(), 'kid')).map((s) => s.id)).toEqual([
+      'announced-show',
+    ]);
   });
 });
 
