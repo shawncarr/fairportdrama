@@ -46,9 +46,10 @@ const body = async (path: string) => (await get(path)).text();
 /**
  * The ids rendered in the Past Productions grid, in order.
  *
- * Bounded by the closing tag of that section, and with the section's own
- * "All shows" link dropped - it points at /shows/past, which would otherwise
- * read as a show called "past".
+ * Bounded by the closing tag of that section. The section's own "All shows"
+ * link now points at /shows, which the id pattern below cannot match, so it
+ * needs no special case - it used to point at /shows/past and read as a show
+ * called "past".
  */
 const listed = async () => {
   const body = await (await get('/')).text();
@@ -58,9 +59,7 @@ const listed = async () => {
   const end = body.indexOf('</section>', start);
   const section = body.slice(start, end === -1 ? undefined : end);
 
-  return [...section.matchAll(/href="\/shows\/([a-z0-9-]+)"/g)]
-    .map((m) => m[1]!)
-    .filter((id) => id !== 'past' && id !== 'current');
+  return [...section.matchAll(/href="\/shows\/([a-z0-9-]+)"/g)].map((m) => m[1]!);
 };
 
 beforeEach(async () => {
@@ -202,7 +201,12 @@ describe('concurrent shows', () => {
     expect(await body('/')).toContain('Dates to be announced');
   });
 
-  it('never lists a promoted show among past productions', async () => {
+  // Named for what it actually pins. The `promotedIds` filter is exercised by
+  // 'does not repeat the show already in the hero', where a closed announced
+  // show is both the wrap hero and a genuine past production. Here the
+  // upcoming show never reaches getPastShows at all, so dropping the filter
+  // leaves this green.
+  it('keeps an upcoming show out of the past section', async () => {
     await seedShow('upcoming-show', { year: 2027, announced: true, lastDate: iso(10) });
     await seedShow('older-show', { year: 2024, lastDate: iso(-400) });
 
