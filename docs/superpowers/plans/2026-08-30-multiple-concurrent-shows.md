@@ -1175,6 +1175,12 @@ describe('concurrent shows', () => {
     await seedShow('jv-show', { year: 2027, announced: true, lastDate: iso(25) });
 
     const html = await body('/');
+
+    // Presence before position: indexOf returns -1 for a show that never
+    // rendered, and -1 is less than any real index, so the comparisons
+    // alone pass for a page missing both shows.
+    expect(html).toContain('varsity-show');
+    expect(html).toContain('jv-show');
     expect(html).toContain('Also this season');
     expect(html.indexOf('varsity-show')).toBeLessThan(html.indexOf('Also this season'));
     expect(html.indexOf('Also this season')).toBeLessThan(html.indexOf('jv-show'));
@@ -1212,7 +1218,16 @@ describe('concurrent shows', () => {
     await seedShow('older-show', { year: 2024, lastDate: iso(-400) });
 
     const html = await body('/');
-    expect(html.slice(html.indexOf('Past Productions'))).not.toContain('upcoming-show');
+
+    // The section is conditional (home.tsx:281). Absent, indexOf is -1 and
+    // slice(-1) is the last character of the page, which contains nothing -
+    // so the assertion would pass without the filter working at all.
+    const pastIndex = html.indexOf('Past Productions');
+    expect(pastIndex).toBeGreaterThan(-1);
+
+    const pastSection = html.slice(pastIndex);
+    expect(pastSection).toContain('older-show');
+    expect(pastSection).not.toContain('upcoming-show');
   });
 });
 ```
