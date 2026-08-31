@@ -511,10 +511,9 @@ const showColumns = {
   firstPerformance: firstPerformanceDate,
   lastPerformance: lastPerformanceDate,
 };
-
-/** A show with the two dates every card and header needs, and nothing more. */
-export type ShowRow = Awaited<ReturnType<typeof getPastShows>>[number];
 ```
+
+Do not export a `ShowRow` alias for this shape. Nothing in the plan needs one — `shows.tsx` derives its card type inline from the query's return type — and an exported alias no caller uses is dead surface.
 
 - [ ] **Step 4: Replace getCurrentShow with getPromotedShows**
 
@@ -626,6 +625,10 @@ export async function getShow(db: DB, id: string) {
 ```
 
 `getShow` narrows from `db.select()` to `showColumns`, so it no longer returns `createdAt` and `updatedAt`. Its only caller is `src/routes/shows.tsx:88`, which uses neither.
+
+- [ ] **Step 5b: Drop imports the rewrite orphaned**
+
+`getPastShows` no longer sorts by `desc(shows.year)`. Check whether `desc` still has a caller in `queries.ts` before removing it — the news queries may still use it. Same for anything else the deleted `getCurrentShow` was the last user of. Leave imports that are still used.
 
 - [ ] **Step 6: Run the state tests**
 
