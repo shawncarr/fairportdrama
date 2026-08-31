@@ -37,10 +37,10 @@ npm run typecheck         # wrangler types && tsc --noEmit
 | File | Responsibility after this plan |
 |---|---|
 | `drizzle/0004_*.sql` + `drizzle/meta/` | The rename, the `company` column, the index swap |
-| `src/db/schema/content.ts` | `isAnnounced`, `company`, `SHOW_COMPANY`, `SHOW_COMPANY_LABEL` |
+| `src/db/schema/content.ts` | `isAnnounced`, `company`, `SHOW_COMPANY` and its type |
 | `src/lib/dates.ts` | `formatDateRange`, `showDateLine`, `hasOpened`; `formatShowDates` deleted |
 | `src/db/queries.ts` | `getPromotedShows`, `getPastShows`, `getLastClosedAnnouncedShow`, `getIndexableShows`, `getShow` with a draft flag |
-| `src/services/shows.ts` | `setAnnounced` replaces `setFeaturedShow`; `ShowInput.company` |
+| `src/services/shows.ts` | `setAnnounced` replaces `setFeaturedShow`; `ShowInput.company`; `SHOW_COMPANY_LABEL`, `isShowCompany` |
 | `src/components/ShowCard.tsx` | New. The one card used by the home band and both `/shows` sections |
 | `src/routes/shows.tsx` | `/shows` index, redirects, draft gate, company badge |
 | `src/routes/home.tsx` | Hero from the promoted list, "Also this season" band |
@@ -57,15 +57,16 @@ npm run typecheck         # wrangler types && tsc --noEmit
 - Create: `drizzle/0004_multiple_concurrent_shows.sql`
 - Modify: `drizzle/meta/_journal.json`, `drizzle/meta/0004_snapshot.json` (both generated)
 - Modify: `seed/content.sql`, `scripts/build-seed.mjs`, `scripts/verify-seed.mjs`
-- Test: `src/lib/show-company.test.ts` (new)
+- Test: `src/services/show-company.test.ts` (new)
 
 - [ ] **Step 1: Write the failing test for the label map**
 
-Create `src/lib/show-company.test.ts`:
+Create `src/services/show-company.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { SHOW_COMPANY, SHOW_COMPANY_LABEL } from '~/db/schema/content';
+import { SHOW_COMPANY } from '~/db/schema/content';
+import { SHOW_COMPANY_LABEL } from './shows';
 
 describe('show companies', () => {
   it('gives every company a display label', () => {
@@ -86,7 +87,7 @@ The second test is the point of the whole indirection: the slugs are provisional
 
 - [ ] **Step 2: Run it and watch it fail**
 
-Run: `npx vitest run src/lib/show-company.test.ts`
+Run: `npx vitest run src/services/show-company.test.ts`
 Expected: FAIL — `SHOW_COMPANY` is not exported from `~/db/schema/content`.
 
 - [ ] **Step 3: Add the vocabulary to the schema**
@@ -107,10 +108,14 @@ In `src/db/schema/content.ts`, directly above the `shows` table:
  */
 export const SHOW_COMPANY = { Jv: 'jv', Varsity: 'varsity' } as const;
 export type ShowCompany = (typeof SHOW_COMPANY)[keyof typeof SHOW_COMPANY];
+```
 
+Then in `src/services/shows.ts`, below `DEFAULT_VENUE`:
+
+```ts
 export const SHOW_COMPANY_LABEL: Record<ShowCompany, string> = {
-  jv: 'JV',
-  varsity: 'Varsity',
+  [SHOW_COMPANY.Jv]: 'JV',
+  [SHOW_COMPANY.Varsity]: 'Varsity',
 };
 
 /**
@@ -118,11 +123,13 @@ export const SHOW_COMPANY_LABEL: Record<ShowCompany, string> = {
  *
  * `$type<ShowCompany>()` is a compile-time assertion and the column is plain
  * TEXT with no CHECK, so a cast at the form boundary would let any string
- * into the database. Mirrors `isNewsCategory` in `src/services/news.ts:173`.
+ * into the database. Mirrors `isNewsCategory` in `./news.ts`.
  */
-export const isShowCompany = (value: string): value is ShowCompany =>
-  Object.values(SHOW_COMPANY).includes(value as ShowCompany);
+export const isShowCompany = (v: string): v is ShowCompany =>
+  Object.values(SHOW_COMPANY).includes(v as ShowCompany);
 ```
+
+The split is the file's own convention: every other vocabulary here — `SPONSOR_TIER`, `SPIRIT_WEAR_CATEGORY`, `NEWS_CATEGORY`, `MEMBER_VISIBILITY`, `SHOW_CAST_TIER` — keeps the const object and type in the schema and puts the label record and type guard in the service that owns them (`src/services/catalog.ts:245`, `src/services/news.ts:168`). Routes import the labels from the service.
 
 `Record<ShowCompany, string>` is load-bearing: it makes the compiler reject a company added without a label.
 
@@ -145,7 +152,7 @@ Do **not** find-and-replace `isCurrent` across the project. Member offices has i
 
 - [ ] **Step 5: Run the test**
 
-Run: `npx vitest run src/lib/show-company.test.ts`
+Run: `npx vitest run src/services/show-company.test.ts`
 Expected: PASS, 2 tests.
 
 - [ ] **Step 6: Generate the migration**
@@ -818,7 +825,8 @@ Three card renderings are about to exist — the home band, `/shows` upcoming, `
 Create `src/components/ShowCard.tsx`:
 
 ```tsx
-import { SHOW_COMPANY_LABEL, type ShowCompany } from '~/db/schema/content';
+import { type ShowCompany } from '~/db/schema/content';
+import { SHOW_COMPANY_LABEL } from '~/services/shows';
 import { showDateLine } from '~/lib/dates';
 
 export interface ShowCardView {
@@ -1266,7 +1274,7 @@ Replace the countdown branch's condition, and give the slot something to hold mi
 
 Import `hasOpened` and `showDateLine` from `~/lib/dates`, and drop `formatShowDates` from that import — after this step it has no callers in the file. `formatDate` is still used by the wrap panel.
 
-`home.tsx` needs four new or changed imports: `getPromotedShows` and `getLastClosedAnnouncedShow` from `~/db/queries` (replacing `getCurrentShow`), `ShowCard` from `~/components/ShowCard`, and `SHOW_COMPANY_LABEL` from `~/db/schema/content`.
+`home.tsx` needs four new or changed imports: `getPromotedShows` and `getLastClosedAnnouncedShow` from `~/db/queries` (replacing `getCurrentShow`), `ShowCard` from `~/components/ShowCard`, and `SHOW_COMPANY_LABEL` from `~/services/shows`.
 
 - [ ] **Step 4: Add the band**
 
