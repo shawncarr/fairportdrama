@@ -1342,6 +1342,24 @@ hiding the fact that the other exists."
 
 **Files:**
 - Modify: `src/components/Header.tsx`, `src/components/Footer.tsx`, `src/routes/system.tsx`
+- Test: `src/routes/public-pages.workers-test.ts`
+
+- [ ] **Step 0: Write the failing test**
+
+Nothing in the suite asserts the nav's contents, so this task changes the navigation on every page of the site with no runtime coverage. The grep in step 4 is a static check for missed links; it does not prove the nav still renders. Add to the `remaining public pages` describe:
+
+```ts
+  it('points the nav and footer at the index, not the retired URLs', async () => {
+    // Any page: both live in BaseLayout.
+    const html = await body('/members');
+
+    expect(html).toContain('href="/shows"');
+    expect(html).not.toContain('href="/shows/current"');
+    expect(html).not.toContain('href="/shows/past"');
+  });
+```
+
+`/members` rather than `/` deliberately — it renders independently of anything this plan changes, so a failure here means the nav, not the home page.
 
 - [ ] **Step 1: Collapse the header dropdown**
 
@@ -1351,7 +1369,9 @@ hiding the fact that the other exists."
   { name: 'Shows', href: '/shows' },
 ```
 
-With one index page there is nothing for a dropdown to hold, and a "Past Shows" child aimed at a 301 would be worse than none. `isActive` uses `path.startsWith(href)`, so a bare `/shows` link still highlights on `/shows/:slug`.
+`NavItem` already has `href` optional and `children` optional, and `{ name: 'Home', href: '/' }` shows a plain entry is valid, so no type change is needed.
+
+With one index page there is nothing for a dropdown to hold, and a "Past Shows" child aimed at a 301 would be worse than none. `isActive` is `href === '/' ? path === '/' : path.startsWith(href)` (`Header.tsx:35-36`), so a bare `/shows` link highlights on `/shows/:slug` as the dropdown parent used to.
 
 - [ ] **Step 2: Collapse the footer links**
 
@@ -1370,10 +1390,15 @@ With one index page there is nothing for a dropdown to hold, and a "Past Shows" 
 Run: `grep -rn "/shows/past\|/shows/current" src/ --include="*.tsx" | grep -v workers-test`
 Expected: exactly two hits, both in `src/routes/shows.tsx` — the two redirect handlers themselves. Anything else is a link you missed.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run the test**
+
+Run: `npx vitest run --config vitest.workers.config.ts src/routes/public-pages.workers-test.ts`
+Expected: the new nav test passes. By this point task 7 has landed, so the whole file should be green.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/components/Header.tsx src/components/Footer.tsx src/routes/system.tsx
+git add src/components/Header.tsx src/components/Footer.tsx src/routes/system.tsx src/routes/public-pages.workers-test.ts
 git commit -m "feat(nav): collapse the shows dropdown to one index link"
 ```
 
