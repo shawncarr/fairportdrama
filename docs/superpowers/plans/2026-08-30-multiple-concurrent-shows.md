@@ -1258,11 +1258,18 @@ Replace the top of the `home.get('/')` handler:
 
   const homePastShows = pastShows
     .filter((s) => !promotedIds.has(s.id))
-    .sort((a, b) => Number(b.isHighlighted) - Number(a.isHighlighted) || b.year - a.year)
+    .sort(
+      (a, b) =>
+        Number(b.isHighlighted) - Number(a.isHighlighted) ||
+        (b.lastPerformance ?? '').localeCompare(a.lastPerformance ?? ''),
+    )
     .slice(0, 3);
 ```
 
-Then rename every `currentShow` in the hero JSX to `featured`, and replace each `currentShow.state === 'closed'` test with the local `closed` — there are three, guarding the ticket button, the countdown, and the closing note. Add the company badge beside `{featured.season}` in the eyebrow, using `SHOW_COMPANY_LABEL` exactly as the show page does.
+Then rename every `currentShow` in the hero JSX to `featured`. `state` no longer exists on the row, so every read of it has to go — there are **four**, not three:
+
+- `:56`, `:85`, `:115` — `currentShow.state === 'closed'`, guarding the closing note in the eyebrow, the ticket button, and the wrap panel. These become the local `closed`.
+- `:398` — `currentShow?.state === 'running'`, which gates injecting `countdownScript()` at the foot of the page. This one is easy to miss because it sits outside the hero and reads `running` rather than `closed`. It becomes `!closed`. Miss it and the countdown markup renders while its script never loads, so the timer sits at `--` forever. Add the company badge beside `{featured.season}` in the eyebrow, using `SHOW_COMPANY_LABEL` exactly as the show page does.
 
 **Change the hero's date line.** It currently reads `{formatShowDates(performances)}`, which returns an empty string for a show announced before its schedule is locked — leaving a calendar icon beside nothing. `featured` carries the projected endpoints, so use them:
 
@@ -1272,7 +1279,11 @@ Then rename every `currentShow` in the hero JSX to `featured`, and replace each 
 
 `performances` is still needed for the countdown, so the fetch stays.
 
+The secondary sort above is `lastPerformance`, not `year`, for the same reason `getPastShows` changed: `year` is hand-entered and can disagree with the dates. Sorting the home page's three cards by one key and the archive by another would put the same shows in different orders on two pages.
+
 **Leave the countdown alone.** It looks like it counts down to a date that has passed once a run is underway, but it does not: `countdownScript` targets `date + 'T19:00:00'` — curtain, not midnight — and when that goes negative it zeroes every unit, reveals "The show has opened!", and clears the interval (`src/components/CountdownTimer.tsx:47-68`). So opening morning correctly counts down to that night, and mid-run correctly says the show has opened. Do not add a `hasOpened` guard; it would hide a working countdown for the whole of opening day.
+
+`home.tsx` imports to change: add `getPromotedShows` and `getLastClosedAnnouncedShow` from `~/db/queries` (dropping `getCurrentShow`), `ShowCard` from `~/components/ShowCard`, `showDateLine` from `~/lib/dates` (dropping `formatShowDates`; `formatDate` stays, the wrap panel uses it), and `SHOW_COMPANY_LABEL` from `~/services/shows`.
 
 - [ ] **Step 4: Add the band**
 
