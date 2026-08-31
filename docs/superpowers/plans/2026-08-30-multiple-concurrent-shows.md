@@ -1490,6 +1490,10 @@ Two more references to the old path live in the permission tests further down th
 Run: `npx vitest run --config vitest.workers.config.ts src/routes/admin-shows.workers-test.ts src/routes/admin-pages.workers-test.ts`
 Expected: FAIL — `/announce` 404s.
 
+- [ ] **Step 2b: Rename the admin-pages seed field**
+
+`src/routes/admin-pages.workers-test.ts:69` writes `isCurrent: true` in its own local seed helper. That column is gone, so nothing in that file passes until it is `isAnnounced: true`. Do it here — this file passing is this task's gate, not task 11's.
+
 - [ ] **Step 3: Rename the POST route**
 
 At `src/routes/admin.tsx:4048`, change the path from `/admin/shows/:id/feature` to `/admin/shows/:id/announce`, the form field from `featured` to `announced`, and the call:
@@ -1499,6 +1503,10 @@ At `src/routes/admin.tsx:4048`, change the path from `/admin/shows/:id/feature` 
 ```
 
 It is an admin-only form target with no external inbound links, so the path changes outright with no redirect.
+
+Imports: `admin.tsx` already pulls from `~/services/shows` at `:70-73`. Swap `setFeaturedShow` for `setAnnounced` there, and add `SHOW_COMPANY_LABEL` and `isShowCompany` to the same import — all three live in that module.
+
+`today` is already computed in the shows-list handler (`:3196-3201`, the same `Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' })` shape used across the codebase), so `showStatus` has the value it needs without adding another.
 
 - [ ] **Step 4: Rework the shows list**
 
@@ -1658,7 +1666,7 @@ Expected: all green.
 
 - [ ] **Step 3b: Rename the last two seed fields**
 
-`src/routes/admin-pages.workers-test.ts:69` sets `isCurrent` in its own local seed helper. Rename it to `isAnnounced`. (`public-pages.workers-test.ts:94` has the same problem but is renamed in task 6, whose gate depends on it.)
+Both files that seed `isCurrent` in a local helper are renamed by the task whose gate depends on them — `public-pages.workers-test.ts:94` in task 6, `admin-pages.workers-test.ts:69` in task 9. Nothing left to do here; confirm with the grep in the next step.
 
 - [ ] **Step 4: Confirm no stale links or names remain**
 
