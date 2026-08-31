@@ -16,7 +16,8 @@ import {
   spiritWear,
   MEMBER_VISIBILITY,
 } from '~/db/schema/content';
-import { get, resetTables } from '~/test/session';
+import { APP_ROLE } from '~/db/schema/governance';
+import { get, resetTables, signIn } from '~/test/session';
 
 /**
  * Every public page, in both its populated and its empty state.
@@ -35,6 +36,9 @@ const db = () => getDb(env.DB);
 
 const YESTERDAY = '2020-01-02';
 const FAR_FUTURE = '2099-05-01';
+
+/** A bare ISO date `d` days from now, for shows seeded relative to today. */
+const iso = (d: number) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
 
 const body = async (path: string) => {
   const res = await get(path);
@@ -91,7 +95,7 @@ async function seedShow(opts: { closed: boolean; featured: boolean }) {
     ticketUrl: 'https://tickets.example.com',
     posterImageId: 'img-poster',
     heroImageId: 'img-hero',
-    isCurrent: opts.featured,
+    isAnnounced: opts.featured,
     isHighlighted: true,
   });
 
@@ -298,8 +302,8 @@ describe('a show whose run has ended', () => {
     expect(html).not.toContain('Opening Night In');
   });
 
-  it('appears in the past shows archive even while still flagged current', async () => {
-    const html = await body('/shows/past');
+  it('appears in the past shows archive', async () => {
+    const html = await body('/shows');
     expect(html).toContain('The Lightning Thief');
   });
 });
@@ -311,11 +315,82 @@ describe('when there is no featured show', () => {
   });
 
   it('the archive says so rather than showing an empty grid', async () => {
-    expect(await body('/shows/past')).toContain('Past Productions');
+    expect(await body('/shows')).toContain('Past Productions');
   });
 
   it('an unknown show 404s', async () => {
     expect((await get('/shows/no-such-show')).status).toBe(404);
+  });
+});
+
+describe('the shows index', () => {
+  const seed = async (
+    id: string,
+    opts: { announced: boolean; date: string },
+  ) => {
+    await db().insert(shows).values({
+      id,
+      title: id,
+      season: 'Spring 2027',
+      year: 2027,
+      synopsis: 'A show.',
+      isAnnounced: opts.announced,
+    });
+    await db()
+      .insert(showPerformances)
+      .values({ id: `${id}-p`, showId: id, date: opts.date, time: '7:30 PM' });
+  };
+
+  beforeEach(async () => {
+    await seed('upcoming-show', { announced: true, date: iso(10) });
+    await seed('staged-show', { announced: false, date: iso(20) });
+    await seed('archived-show', { announced: false, date: iso(-30) });
+  });
+
+  it('lists upcoming shows above past ones', async () => {
+    const html = await body('/shows');
+    expect(html).toContain('Upcoming');
+    expect(html.indexOf('Upcoming')).toBeLessThan(html.indexOf('Past Productions'));
+  });
+
+  it('redirects the old past-shows URL to the index for good', async () => {
+    const res = await get('/shows/past');
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('/shows');
+  });
+
+  it('sends /shows/current to the soonest upcoming show', async () => {
+    const res = await get('/shows/current');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/shows/upcoming-show');
+  });
+
+  it('404s a draft rather than serving it to anyone holding the URL', async () => {
+    expect((await get('/shows/staged-show')).status).toBe(404);
+  });
+
+  it('still serves a past show that was never announced', async () => {
+    expect((await get('/shows/archived-show')).status).toBe(200);
+  });
+
+  it('shows a draft to whoever can edit it, so it can be checked first', async () => {
+    const cookie = await signIn('board@example.com', APP_ROLE.Admin);
+    expect((await get('/shows/staged-show', cookie)).status).toBe(200);
+  });
+
+  it('offers tickets on every announced running show, not just one', async () => {
+    await db()
+      .update(shows)
+      .set({ ticketUrl: 'https://tickets.example.com' })
+      .where(eq(shows.id, 'upcoming-show'));
+    await seed('second-show', { announced: true, date: iso(14) });
+    await db()
+      .update(shows)
+      .set({ ticketUrl: 'https://tickets.example.com/2' })
+      .where(eq(shows.id, 'second-show'));
+
+    expect(await body('/shows/upcoming-show')).toContain('Get Tickets');
+    expect(await body('/shows/second-show')).toContain('Get Tickets');
   });
 });
 

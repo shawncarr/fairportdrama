@@ -3,19 +3,22 @@ import type { AppEnv } from '~/env';
 import {
   getCast,
   getCrew,
-  getCurrentShow,
   getDb,
   getGallery,
   getPastShows,
   getPerformances,
+  getPromotedShows,
   getShow,
   getSponsors,
 } from '~/db/queries';
+import { ShowCard } from '~/components/ShowCard';
 import { SponsorGrid, type SponsorView } from '~/components/SponsorGrid';
 import { ShareButtons } from '~/components/ShareButtons';
 import { PhotoGallery } from '~/components/PhotoGallery';
 import { IMAGE_VARIANT, ogImageUrl } from '~/lib/images';
-import { formatShowDates, hasClosed } from '~/lib/dates';
+import { hasClosed, showDateLine } from '~/lib/dates';
+import { can } from '~/lib/auth/permissions';
+import { SHOW_COMPANY_LABEL } from '~/services/shows';
 import type { ShowCastTier } from '~/db/schema/content';
 
 export const showRoutes = new Hono<AppEnv>();
@@ -29,56 +32,64 @@ const TIER_HEADINGS: Record<ShowCastTier, string> = {
 const TIER_ORDER: ShowCastTier[] = ['lead', 'supporting', 'ensemble'];
 
 showRoutes.get('/shows/current', async (c) => {
-  const show = await getCurrentShow(getDb(c.env.DB));
-  return show ? c.redirect(`/shows/${show.id}`, 302) : c.redirect('/shows/past', 302);
+  const [next] = await getPromotedShows(getDb(c.env.DB));
+  return next ? c.redirect(`/shows/${next.id}`, 302) : c.redirect('/shows', 302);
 });
 
-showRoutes.get('/shows/past', async (c) => {
+// Permanent: /shows/past was indexed, and it is being folded into /shows
+// rather than moved.
+showRoutes.get('/shows/past', (c) => c.redirect('/shows', 301));
+
+showRoutes.get('/shows', async (c) => {
   const db = getDb(c.env.DB);
   const images = c.get('images');
-  const shows = await getPastShows(db);
+  const [upcoming, past] = await Promise.all([getPromotedShows(db), getPastShows(db)]);
+
+  const toCard = (show: (typeof past)[number]) => ({
+    id: show.id,
+    title: show.title,
+    season: show.season,
+    company: show.company,
+    posterUrl: images.deliveryUrl(show.posterImageId, IMAGE_VARIANT.Poster),
+    firstPerformance: show.firstPerformance,
+    lastPerformance: show.lastPerformance,
+  });
 
   return c.render(
-    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-16">
-      <h1 class="font-display text-4xl font-bold text-neutral-900 mb-3">Past Productions</h1>
-      <p class="text-neutral-600 mb-10">
-        A look back at what the Drama Club has staged.
-      </p>
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-16 space-y-16">
+      <h1 class="font-display text-4xl font-bold text-neutral-900">Shows</h1>
 
-      {shows.length === 0 ? (
-        <p class="text-neutral-600">No past productions have been added yet.</p>
-      ) : (
-        <div class="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-          {shows.map((show) => {
-            const poster = images.deliveryUrl(show.posterImageId, IMAGE_VARIANT.Poster);
-            return (
-              <a
-                href={`/shows/${show.id}`}
-                class="group block rounded-xl overflow-hidden ring-1 ring-neutral-200 hover:ring-primary-300 transition-all bg-white"
-              >
-                <div class="aspect-[16/10] bg-neutral-800">
-                  {poster && (
-                    <img
-                      src={poster}
-                      alt=""
-                      loading="lazy"
-                      class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
-                    />
-                  )}
-                </div>
-                <div class="p-5">
-                  <h2 class="font-display font-semibold text-neutral-900 group-hover:text-primary-600 transition-colors">
-                    {show.title}
-                  </h2>
-                  <p class="text-sm text-neutral-500">{show.season}</p>
-                </div>
-              </a>
-            );
-          })}
-        </div>
+      {upcoming.length > 0 && (
+        <section>
+          <h2 class="font-display text-3xl font-bold text-neutral-900 mb-8">Upcoming</h2>
+          <div class="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+            {upcoming.map((show) => (
+              <ShowCard show={toCard(show)} />
+            ))}
+          </div>
+        </section>
       )}
+
+      <section>
+        <h2 class="font-display text-3xl font-bold text-neutral-900 mb-3">
+          Past Productions
+        </h2>
+        <p class="text-neutral-600 mb-8">A look back at what the Drama Club has staged.</p>
+        {past.length === 0 ? (
+          <p class="text-neutral-600">No past productions have been added yet.</p>
+        ) : (
+          <div class="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+            {past.map((show) => (
+              <ShowCard show={toCard(show)} dates={false} />
+            ))}
+          </div>
+        )}
+      </section>
     </div>,
-    { title: 'Past Shows', description: 'Past productions staged by the Fairport Drama Club.' },
+    {
+      title: 'Shows',
+      description: 'Upcoming and past productions staged by the Fairport Drama Club.',
+    },
   );
 });
 
@@ -87,6 +98,13 @@ showRoutes.get('/shows/:slug', async (c) => {
   const images = c.get('images');
   const show = await getShow(db, c.req.param('slug'));
   if (!show) return c.notFound();
+  // A draft is hidden from visitors, not from the board member building it.
+  // Nothing in the admin links to a show's public page, so 404ing everyone
+  // would leave no way to check a page before announcing it - and announcing
+  // is the only other way to see it, which publishes it to the home page.
+  if (show.isDraft && !can(c.get('role') ?? null, 'show', 'update')) {
+    return c.notFound();
+  }
 
   const [performances, cast, crew, gallery, sponsors] = await Promise.all([
     getPerformances(db, show.id),
@@ -105,7 +123,7 @@ showRoutes.get('/shows/:slug', async (c) => {
   // for the current show and once in grey for past ones - which is most of why
   // that file reached 960 lines. The only real difference is the palette.
   const gradient =
-    show.isCurrent && !closed
+    show.isAnnounced && !closed
       ? 'from-primary-600 via-primary-700 to-secondary-800'
       : 'from-neutral-800 via-neutral-700 to-neutral-900';
 
@@ -126,6 +144,11 @@ showRoutes.get('/shows/:slug', async (c) => {
             <div class="lg:col-span-2">
               <p class="text-accent-400 font-semibold text-sm uppercase tracking-wider mb-3">
                 {show.season}
+                {show.company && (
+                  <span class="ml-2 px-2 py-0.5 rounded-full bg-white/20 text-white text-xs font-medium">
+                    {SHOW_COMPANY_LABEL[show.company]}
+                  </span>
+                )}
               </p>
               <h1 class="font-display text-4xl sm:text-5xl lg:text-6xl font-bold mb-6">
                 {show.title}
@@ -135,7 +158,9 @@ showRoutes.get('/shows/:slug', async (c) => {
               <dl class="grid sm:grid-cols-2 gap-4 text-sm mb-8">
                 <div>
                   <dt class="text-white/60 uppercase text-xs tracking-wide">Dates</dt>
-                  <dd class="mt-1">{formatShowDates(performances)}</dd>
+                  <dd class="mt-1">
+                    {showDateLine(show.firstPerformance, show.lastPerformance)}
+                  </dd>
                 </div>
                 <div>
                   <dt class="text-white/60 uppercase text-xs tracking-wide">Venue</dt>
@@ -159,7 +184,7 @@ showRoutes.get('/shows/:slug', async (c) => {
                 </p>
               )}
 
-              {show.isCurrent && !closed && show.ticketUrl && (
+              {show.isAnnounced && !closed && show.ticketUrl && (
                 <a
                   href={show.ticketUrl}
                   class="inline-flex items-center justify-center px-8 py-3 bg-accent-500 hover:bg-accent-600 text-neutral-900 font-semibold rounded-lg transition-colors shadow-lg"
