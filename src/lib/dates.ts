@@ -11,6 +11,10 @@ export interface PerformanceLike {
 /**
  * A run's dates, from its endpoints.
  *
+ *   one date          -> "Mar 5, 2026"
+ *   same month        -> "March 5-7, 2026"
+ *   spanning months   -> "Feb 27 - Mar 1, 2026"
+ *
  * Takes two dates rather than a schedule because the show cards render from
  * columns projected by the query, not from a per-card performance fetch.
  */
