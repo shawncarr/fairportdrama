@@ -30,7 +30,24 @@ describe('ShowCard', () => {
   });
 
   it('renders no badge for a show the whole club stages', async () => {
-    expect(await render(base)).not.toContain('rounded-full');
+    // The badge is the card's only span, so this asserts the element is
+    // absent rather than that one Tailwind class is - a badge restyle
+    // should not quietly turn this into a test of nothing.
+    expect(await render(base)).not.toContain('<span');
+  });
+
+  it('names the season and keeps the title an h3 under the section h2', async () => {
+    const html = await render(base);
+
+    expect(html).toContain('Spring 2026');
+    expect(html).toContain('<h3');
+  });
+
+  it('renders the poster when there is one', async () => {
+    const html = await render({ ...base, posterUrl: '/i/poster/card' });
+
+    expect(html).toContain('<img');
+    expect(html).toContain('src="/i/poster/card"');
   });
 
   it('gives a dateless show a line saying so', async () => {
