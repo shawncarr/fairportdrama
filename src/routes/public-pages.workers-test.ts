@@ -17,6 +17,7 @@ import {
   MEMBER_VISIBILITY,
 } from '~/db/schema/content';
 import { APP_ROLE } from '~/db/schema/governance';
+import { showDateLine } from '~/lib/dates';
 import { get, resetTables, signIn } from '~/test/session';
 
 /**
@@ -349,8 +350,20 @@ describe('the shows index', () => {
 
   it('lists upcoming shows above past ones', async () => {
     const html = await body('/shows');
-    expect(html).toContain('Upcoming');
-    expect(html.indexOf('Upcoming')).toBeLessThan(html.indexOf('Past Productions'));
+
+    // Match the heading's text node, not the bare word: the page's meta
+    // description is "Upcoming and past productions..." and lives in <head>,
+    // so `toContain('Upcoming')` and an indexOf comparison against it both
+    // pass with the entire Upcoming section deleted.
+    expect(html).toContain('>Upcoming<');
+    expect(html.indexOf('upcoming-show')).toBeLessThan(html.indexOf('archived-show'));
+  });
+
+  it('dates the upcoming cards and leaves the archive undated', async () => {
+    const html = await body('/shows');
+
+    expect(html).toContain(showDateLine(iso(10), iso(10)));
+    expect(html).not.toContain(showDateLine(iso(-30), iso(-30)));
   });
 
   it('redirects the old past-shows URL to the index for good', async () => {
