@@ -1,11 +1,21 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '~/env';
-import { getDb, getCurrentShow, getPastShows, getPerformances, getPublishedNews, getSponsors } from '~/db/queries';
+import {
+  getDb,
+  getLastClosedAnnouncedShow,
+  getPastShows,
+  getPerformances,
+  getPromotedShows,
+  getPublishedNews,
+  getSponsors,
+} from '~/db/queries';
 import { CountdownTimer, countdownScript } from '~/components/CountdownTimer';
 import { NewsletterForm } from '~/components/NewsletterForm';
+import { ShowCard, toShowCardView } from '~/components/ShowCard';
 import { SponsorGrid, type SponsorView } from '~/components/SponsorGrid';
 import { IMAGE_VARIANT, ogImageUrl } from '~/lib/images';
-import { formatShowDates, formatDate } from '~/lib/dates';
+import { showDateLine, formatDate } from '~/lib/dates';
+import { SHOW_COMPANY_LABEL } from '~/services/shows';
 
 export const home = new Hono<AppEnv>();
 
@@ -13,33 +23,50 @@ home.get('/', async (c) => {
   const db = getDb(c.env.DB);
   const images = c.get('images');
 
-  const currentShow = await getCurrentShow(db);
+  const promoted = await getPromotedShows(db);
+  const [hero, ...alsoThisSeason] = promoted;
+
+  // With nothing upcoming the page keeps naming the show that just ran, in
+  // its wrap state. Emptying the hero the morning after closing night would
+  // be more surprising than marking the run over.
+  const featured = hero ?? (await getLastClosedAnnouncedShow(db));
+  const closed = !hero && featured !== null;
+
   const [performances, pastShows, latestNews, sponsors] = await Promise.all([
-    currentShow ? getPerformances(db, currentShow.id) : Promise.resolve([]),
+    featured ? getPerformances(db, featured.id) : Promise.resolve([]),
     getPastShows(db),
     getPublishedNews(db, 3),
     getSponsors(db, { showId: null }),
   ]);
 
+  const promotedIds = new Set([
+    ...promoted.map((s) => s.id),
+    ...(featured ? [featured.id] : []),
+  ]);
+
   /**
    * Past productions for the home page.
    *
-   * The current show is dropped because it is already the hero: its run had
-   * closed, so it counted as finished and the page listed the same production
-   * twice. Highlighting now orders rather than filters - the section used to
+   * Every promoted show is dropped, hero included: a closed run counts as
+   * finished, so without the filter the page listed the same production
+   * twice. Highlighting orders rather than filters - the section used to
    * show only flagged shows, and with one flag set across four productions it
    * had collapsed to a single card that was also the hero.
    */
   const homePastShows = pastShows
-    .filter((s) => s.id !== currentShow?.id)
-    .sort((a, b) => Number(b.isHighlighted) - Number(a.isHighlighted) || b.year - a.year)
+    .filter((s) => !promotedIds.has(s.id))
+    .sort(
+      (a, b) =>
+        Number(b.isHighlighted) - Number(a.isHighlighted) ||
+        (b.lastPerformance ?? '').localeCompare(a.lastPerformance ?? ''),
+    )
     .slice(0, 3);
 
-  const heroUrl = images.deliveryUrl(currentShow?.heroImageId, IMAGE_VARIANT.Hero);
+  const heroUrl = images.deliveryUrl(featured?.heroImageId, IMAGE_VARIANT.Hero);
 
   return c.render(
     <>
-      {currentShow ? (
+      {featured ? (
         <section class="relative bg-gradient-to-br from-primary-600 via-primary-700 to-secondary-800 text-white overflow-hidden">
           {heroUrl && (
             <div class="absolute inset-0" aria-hidden="true">
@@ -52,46 +79,51 @@ home.get('/', async (c) => {
             <div class="grid lg:grid-cols-2 gap-12 items-center">
               <div class="text-center lg:text-left">
                 <p class="text-accent-400 font-semibold text-sm uppercase tracking-wider mb-4">
-                  {currentShow.season}
-                  {currentShow.state === 'closed' && (
+                  {featured.season}
+                  {featured.company && (
+                    <span class="ml-2 px-2 py-0.5 rounded-full bg-white/20 text-white text-xs font-medium">
+                      {SHOW_COMPANY_LABEL[featured.company]}
+                    </span>
+                  )}
+                  {closed && (
                     <span class="ml-2 text-white/60 normal-case tracking-normal font-normal">
                       &middot; This run has ended
                     </span>
                   )}
                 </p>
                 <h1 class="font-display text-4xl sm:text-5xl lg:text-6xl font-bold mb-4">
-                  {currentShow.title}
+                  {featured.title}
                 </h1>
                 <p class="text-white/70 mb-8 max-w-xl mx-auto lg:mx-0">
-                  {currentShow.synopsis}
+                  {featured.synopsis}
                 </p>
 
                 <div class="flex flex-wrap gap-4 justify-center lg:justify-start mb-8 text-sm">
                   <div class="flex items-center gap-2">
                     <CalendarIcon />
-                    <span>{formatShowDates(performances)}</span>
+                    <span>{showDateLine(featured.firstPerformance, featured.lastPerformance)}</span>
                   </div>
                   <div class="flex items-center gap-2">
                     <PinIcon />
-                    <span>{currentShow.venue}</span>
+                    <span>{featured.venue}</span>
                   </div>
                 </div>
 
                 <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
                   {/* A finished run never shows a ticket link. Selling tickets
                       to a show that already closed is worse than showing
-                      nothing, and the stored isCurrent flag cannot be relied on
-                      to have been cleared. */}
-                  {currentShow.state === 'closed' ? (
+                      nothing, and the stored isAnnounced flag cannot be relied
+                      on to have been cleared. */}
+                  {closed ? (
                     <a
-                      href="/shows/past"
+                      href="/shows"
                       class="inline-flex items-center justify-center px-8 py-3 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-lg transition-colors backdrop-blur-sm"
                     >
                       Browse Past Shows
                     </a>
-                  ) : currentShow.ticketUrl ? (
+                  ) : featured.ticketUrl ? (
                     <a
-                      href={currentShow.ticketUrl}
+                      href={featured.ticketUrl}
                       class="inline-flex items-center justify-center px-8 py-3 bg-accent-500 hover:bg-accent-600 text-neutral-900 font-semibold rounded-lg transition-colors shadow-lg hover:shadow-xl"
                     >
                       Get Tickets
@@ -102,7 +134,7 @@ home.get('/', async (c) => {
                     </span>
                   )}
                   <a
-                    href={`/shows/${currentShow.id}`}
+                    href={`/shows/${featured.id}`}
                     class="inline-flex items-center justify-center px-8 py-3 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-lg transition-colors backdrop-blur-sm"
                   >
                     Learn More
@@ -112,19 +144,19 @@ home.get('/', async (c) => {
 
               {/* Counting down to a date that has passed is noise, so a closed
                   run gets a closing note in the same slot instead. */}
-              {currentShow.state === 'closed' ? (
+              {closed ? (
                 <div class="flex justify-center lg:justify-end">
                   <div class="bg-white/10 backdrop-blur-sm rounded-2xl p-8 text-center max-w-sm">
                     <p class="font-display text-2xl font-bold text-white mb-2">
                       That&rsquo;s a wrap
                     </p>
                     <p class="text-white/70 text-sm">
-                      {currentShow.title} closed on{' '}
-                      {formatDate(currentShow.lastPerformance ?? '')}. Thank you to
+                      {featured.title} closed on{' '}
+                      {formatDate(featured.lastPerformance ?? '')}. Thank you to
                       everyone who came out.
                     </p>
                     <a
-                      href={`/shows/${currentShow.id}`}
+                      href={`/shows/${featured.id}`}
                       class="inline-block mt-4 text-accent-400 hover:text-accent-300 text-sm font-medium"
                     >
                       See the cast and crew
@@ -136,7 +168,7 @@ home.get('/', async (c) => {
                   <div class="flex justify-center lg:justify-end">
                     <CountdownTimer
                       targetDate={performances[0]!.date}
-                      showTitle={currentShow.title}
+                      showTitle={featured.title}
                     />
                   </div>
                 )
@@ -167,6 +199,21 @@ home.get('/', async (c) => {
               Our next production has not been announced yet. Check back soon, or
               subscribe below to hear first.
             </p>
+          </div>
+        </section>
+      )}
+
+      {alsoThisSeason.length > 0 && (
+        <section class="py-12 bg-neutral-50 border-b border-neutral-200">
+          <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <h2 class="font-display text-2xl font-bold text-neutral-900 mb-6">
+              Also this season
+            </h2>
+            <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {alsoThisSeason.map((show) => (
+                <ShowCard show={toShowCardView(show, images)} />
+              ))}
+            </div>
           </div>
         </section>
       )}
@@ -286,7 +333,7 @@ home.get('/', async (c) => {
                 Past Productions
               </h2>
               <a
-                href="/shows/past"
+                href="/shows"
                 class="text-primary-600 hover:text-primary-700 font-medium text-sm"
               >
                 All shows
@@ -395,18 +442,18 @@ home.get('/', async (c) => {
         </div>
       </section>
 
-      {currentShow?.state === 'running' && performances.length > 0 && countdownScript()}
+      {!closed && performances.length > 0 && countdownScript()}
     </>,
     {
       title: 'Home',
-      description: currentShow
-        ? `${currentShow.title} - ${currentShow.season}. ${currentShow.synopsis}`
+      description: featured
+        ? `${featured.title} - ${featured.season}. ${featured.synopsis}`
         : undefined,
       image:
         ogImageUrl(images, {
-          og: currentShow?.ogImageId,
-          hero: currentShow?.heroImageId,
-          poster: currentShow?.posterImageId,
+          og: featured?.ogImageId,
+          hero: featured?.heroImageId,
+          poster: featured?.posterImageId,
         }) ?? undefined,
     },
   );

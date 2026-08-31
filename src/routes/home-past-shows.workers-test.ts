@@ -21,7 +21,7 @@ const iso = (daysFromNow: number) =>
 
 async function seedShow(
   id: string,
-  opts: { year: number; current?: boolean; highlighted?: boolean; lastDate: string },
+  opts: { year: number; announced?: boolean; highlighted?: boolean; lastDate: string },
 ) {
   await db().insert(shows).values({
     id,
@@ -30,7 +30,7 @@ async function seedShow(
     year: opts.year,
     venue: 'Auditorium',
     synopsis: 'A show.',
-    isCurrent: opts.current ?? false,
+    isAnnounced: opts.announced ?? false,
     isHighlighted: opts.highlighted ?? false,
   });
   await db().insert(showPerformances).values({
@@ -40,6 +40,8 @@ async function seedShow(
     time: '19:00',
   });
 }
+
+const body = async (path: string) => (await get(path)).text();
 
 /**
  * The ids rendered in the Past Productions grid, in order.
@@ -79,7 +81,7 @@ describe('which shows are listed', () => {
   it('does not repeat the show already in the hero', async () => {
     await seedShow('lightning-thief', {
       year: 2026,
-      current: true,
+      announced: true,
       highlighted: true,
       lastDate: iso(-150),
     });
@@ -97,14 +99,14 @@ describe('which shows are listed', () => {
   });
 
   it('leaves out a show that is still running', async () => {
-    await seedShow('running-now', { year: 2026, current: true, lastDate: iso(30) });
+    await seedShow('running-now', { year: 2026, announced: true, lastDate: iso(30) });
     await seedShow('charlottes-web', { year: 2025, lastDate: iso(-400) });
 
     expect(await listed()).toEqual(['charlottes-web']);
   });
 
   it('shows nothing rather than an empty heading when there are none', async () => {
-    await seedShow('running-now', { year: 2026, current: true, lastDate: iso(30) });
+    await seedShow('running-now', { year: 2026, announced: true, lastDate: iso(30) });
 
     const body = await (await get('/')).text();
     expect(body).not.toContain('Past Productions');
@@ -130,8 +132,11 @@ describe('ordering', () => {
   });
 
   it('shows at most three, so the home page does not become the archive', async () => {
+    // A distinct closing date per year. They once shared one, and the order
+    // came from `year` alone - which the page no longer sorts on, because
+    // `year` is hand-entered and can disagree with the dates.
     for (const year of [2021, 2022, 2023, 2024, 2025]) {
-      await seedShow(`show-${year}`, { year, lastDate: iso(-400) });
+      await seedShow(`show-${year}`, { year, lastDate: iso(-400 - (2025 - year) * 365) });
     }
 
     const ids = await listed();
@@ -146,9 +151,71 @@ describe('the archive is unaffected', () => {
       await seedShow(`show-${year}`, { year, lastDate: iso(-400) });
     }
 
-    const body = await (await get('/shows/past')).text();
+    const body = await (await get('/shows')).text();
     for (const year of [2021, 2022, 2023, 2024, 2025]) {
       expect(body, String(year)).toContain(`show-${year}`);
     }
+  });
+});
+
+describe('concurrent shows', () => {
+  it('heroes the soonest show and bands the rest', async () => {
+    await seedShow('varsity-show', { year: 2027, announced: true, lastDate: iso(10) });
+    await seedShow('jv-show', { year: 2027, announced: true, lastDate: iso(25) });
+
+    const html = await body('/');
+
+    // Presence before position: indexOf returns -1 for a show that never
+    // rendered, and -1 is less than any real index, so the comparisons
+    // alone pass for a page missing both shows.
+    expect(html).toContain('varsity-show');
+    expect(html).toContain('jv-show');
+    expect(html).toContain('Also this season');
+    expect(html.indexOf('varsity-show')).toBeLessThan(html.indexOf('Also this season'));
+    expect(html.indexOf('Also this season')).toBeLessThan(html.indexOf('jv-show'));
+  });
+
+  it('hides the band when only one show is upcoming', async () => {
+    await seedShow('only-show', { year: 2027, announced: true, lastDate: iso(10) });
+
+    expect(await body('/')).not.toContain('Also this season');
+  });
+
+  it('keeps the wrap hero when every announced show has closed', async () => {
+    await seedShow('closed-show', { year: 2026, announced: true, lastDate: iso(-30) });
+
+    const html = await body('/');
+    expect(html).toContain('a wrap');
+    expect(html).not.toContain('Also this season');
+  });
+
+  it('says the dates are unset rather than rendering a blank line', async () => {
+    await db().insert(shows).values({
+      id: 'no-dates-yet',
+      title: 'no-dates-yet',
+      season: 'Fall 2027',
+      year: 2027,
+      synopsis: 'Announced before the schedule locked.',
+      isAnnounced: true,
+    });
+
+    expect(await body('/')).toContain('Dates to be announced');
+  });
+
+  it('never lists a promoted show among past productions', async () => {
+    await seedShow('upcoming-show', { year: 2027, announced: true, lastDate: iso(10) });
+    await seedShow('older-show', { year: 2024, lastDate: iso(-400) });
+
+    const html = await body('/');
+
+    // The section is conditional (home.tsx:281). Absent, indexOf is -1 and
+    // slice(-1) is the last character of the page, which contains nothing -
+    // so the assertion would pass without the filter working at all.
+    const pastIndex = html.indexOf('Past Productions');
+    expect(pastIndex).toBeGreaterThan(-1);
+
+    const pastSection = html.slice(pastIndex);
+    expect(pastSection).toContain('older-show');
+    expect(pastSection).not.toContain('upcoming-show');
   });
 });
