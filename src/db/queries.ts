@@ -26,8 +26,8 @@ export const getDb = (binding: D1Database): DB => drizzle(withReadRetry(binding)
 /**
  * The last scheduled performance date for a show, as a correlated subquery.
  *
- * Show state is derived from this rather than from the stored `isCurrent`
- * flag alone. The flag is an editorial choice - "feature this show" - and it
+ * Show state is derived from this rather than from the stored `isAnnounced`
+ * flag alone. The flag is an editorial choice - "announce this show" - and it
  * drifts: the spring 2026 production stayed flagged current for five months
  * after closing, so the homepage went on advertising tickets for a show that
  * had already run.
@@ -41,6 +41,11 @@ const lastPerformanceDate = sql<string | null>`(
   SELECT MAX(p.date) FROM show_performances p WHERE p.show_id = ${sql.raw('"shows"."id"')}
 )`;
 
+/** Opening night, correlated the same way and for the same reason. */
+const firstPerformanceDate = sql<string | null>`(
+  SELECT MIN(p.date) FROM show_performances p WHERE p.show_id = ${sql.raw('"shows"."id"')}
+)`;
+
 /** Today in the club's timezone, as a bare ISO date for comparison. */
 const today = () =>
   new Intl.DateTimeFormat('en-CA', {
@@ -50,64 +55,120 @@ const today = () =>
     day: '2-digit',
   }).format(new Date());
 
-export type ShowState = 'running' | 'closed';
+/** What every show list projects, so the four queries cannot drift apart. */
+const showColumns = {
+  id: shows.id,
+  title: shows.title,
+  season: shows.season,
+  year: shows.year,
+  company: shows.company,
+  venue: shows.venue,
+  synopsis: shows.synopsis,
+  ticketUrl: shows.ticketUrl,
+  posterImageId: shows.posterImageId,
+  heroImageId: shows.heroImageId,
+  ogImageId: shows.ogImageId,
+  isAnnounced: shows.isAnnounced,
+  isHighlighted: shows.isHighlighted,
+  firstPerformance: firstPerformanceDate,
+  lastPerformance: lastPerformanceDate,
+};
 
 /**
- * The featured show, with whether its run has finished.
+ * Whether a run has finished, as a WHERE fragment.
  *
- * A closed show is still returned: the homepage keeps showing it, but as an
- * ended run rather than an upcoming one. Hiding it outright the morning after
- * closing night would be more surprising than marking it over.
+ * A function, not a constant. `today()` bound once at module load would
+ * freeze the date for the life of the isolate, so a Worker that survived
+ * midnight would compare against yesterday - the same drift this change
+ * exists to remove.
  */
-export async function getCurrentShow(db: DB) {
-  const [row] = await db
-    .select({
-      id: shows.id,
-      title: shows.title,
-      season: shows.season,
-      year: shows.year,
-      venue: shows.venue,
-      synopsis: shows.synopsis,
-      ticketUrl: shows.ticketUrl,
-      posterImageId: shows.posterImageId,
-      heroImageId: shows.heroImageId,
-      ogImageId: shows.ogImageId,
-      isCurrent: shows.isCurrent,
-      isHighlighted: shows.isHighlighted,
-      lastPerformance: lastPerformanceDate,
-    })
+const closed = () =>
+  sql`${lastPerformanceDate} IS NOT NULL AND ${lastPerformanceDate} < ${today()}`;
+
+/**
+ * Announced shows whose runs have not ended, soonest first.
+ *
+ * Replaces the single featured show. Two productions can now be promoted at
+ * once - the club stages a JV and a Varsity show in overlapping windows -
+ * so the home page takes the head of this list as its hero and lists the
+ * tail beneath it.
+ *
+ * A show announced before its schedule is locked has no dates and sorts
+ * last, rather than sorting as though it were happening today.
+ */
+export async function getPromotedShows(db: DB) {
+  return db
+    .select(showColumns)
     .from(shows)
-    .where(eq(shows.isCurrent, true))
-    .limit(1);
-
-  if (!row) return null;
-
-  const state: ShowState =
-    row.lastPerformance && row.lastPerformance < today() ? 'closed' : 'running';
-
-  return { ...row, state };
+    .where(and(eq(shows.isAnnounced, true), sql`NOT (${closed()})`))
+    .orderBy(
+      sql`${firstPerformanceDate} IS NULL`,
+      sql`${firstPerformanceDate} ASC`,
+      asc(shows.title),
+    );
 }
 
-export async function getShow(db: DB, id: string) {
-  const [row] = await db.select().from(shows).where(eq(shows.id, id)).limit(1);
+/**
+ * The most recently closed announced show, for the home page's wrap state.
+ *
+ * Cannot reuse getPastShows: that now includes shows nobody ever announced,
+ * and the morning after closing night the home page should name the show
+ * that just ran rather than whatever is deepest in the archive.
+ */
+export async function getLastClosedAnnouncedShow(db: DB) {
+  const [row] = await db
+    .select(showColumns)
+    .from(shows)
+    .where(and(eq(shows.isAnnounced, true), closed()))
+    .orderBy(sql`${lastPerformanceDate} DESC`)
+    .limit(1);
+
   return row ?? null;
 }
 
 /**
- * Shows that have finished.
+ * Shows that have finished, newest first.
  *
- * Includes a show still flagged `isCurrent` whose run has ended. Without that,
- * closing a show would drop it into limbo - no longer promoted on the
- * homepage, but absent from the archive too - until someone remembered to
- * clear the flag by hand.
+ * "Finished" requires at least one performance date. Phrased as "every date
+ * is in the past" it would be vacuously true of a show with no dates, which
+ * would pull unannounced drafts into the archive and the sitemap.
+ *
+ * Ordered by when the run ended, not by `year`. `year` is hand-entered and
+ * can disagree with the dates - a spring 2027 show belonging to the
+ * 2026-2027 season is easily entered as 2026 - so sorting by it first would
+ * group the archive wrongly and leave the date sort ordering within that
+ * mistake. Every row here has a last performance; that is what put it here.
  */
 export async function getPastShows(db: DB) {
-  const finished = or(
-    eq(shows.isCurrent, false),
-    sql`${lastPerformanceDate} IS NOT NULL AND ${lastPerformanceDate} < ${today()}`,
-  );
+  return db
+    .select(showColumns)
+    .from(shows)
+    .where(closed())
+    .orderBy(sql`${lastPerformanceDate} DESC`, asc(shows.title));
+}
 
-  return db.select().from(shows).where(finished).orderBy(desc(shows.year));
+/** Every show with a public page: announced, or finished. Not drafts. */
+export async function getIndexableShows(db: DB) {
+  return db
+    .select({ id: shows.id })
+    .from(shows)
+    .where(or(eq(shows.isAnnounced, true), closed()));
+}
+
+/**
+ * One show, with whether it is still a draft.
+ *
+ * A draft is unannounced and unfinished - a record staged in the admin
+ * before the club has announced it. `/shows/:slug` 404s for one. A finished
+ * show stays reachable whether or not it was ever announced, so archiving
+ * never breaks an old link.
+ */
+export async function getShow(db: DB, id: string) {
+  const [row] = await db.select(showColumns).from(shows).where(eq(shows.id, id)).limit(1);
+  if (!row) return null;
+
+  const hasClosed = row.lastPerformance !== null && row.lastPerformance < today();
+  return { ...row, closed: hasClosed, isDraft: !row.isAnnounced && !hasClosed };
 }
 
 export async function getPerformances(db: DB, showId: string) {

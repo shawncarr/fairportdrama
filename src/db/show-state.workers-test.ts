@@ -1,15 +1,27 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { showPerformances, shows } from './schema/content';
-import { getCurrentShow, getDb, getPastShows } from './queries';
+import {
+  getDb,
+  getIndexableShows,
+  getLastClosedAnnouncedShow,
+  getPastShows,
+  getPromotedShows,
+  getShow,
+} from './queries';
 
 /**
- * Show state is derived from performance dates rather than trusted from the
- * stored `isCurrent` flag.
+ * Show state is derived from performance dates crossed with the stored
+ * `isAnnounced` flag, rather than trusted from the flag alone.
  *
  * The flag is an editorial choice and it drifts: the real spring 2026
  * production stayed flagged current for five months after closing, so the
  * homepage kept advertising tickets for a show that had already run.
+ *
+ * Every past date here is at least three days back on purpose. `iso()`
+ * derives from the UTC date while the queries compare against
+ * America/New_York, so a single day back is ambiguous between 20:00 ET and
+ * midnight.
  */
 
 const db = () => getDb(env.DB);
@@ -19,7 +31,7 @@ const iso = (daysFromNow: number) =>
 
 const seedShow = async (
   id: string,
-  isCurrent: boolean,
+  isAnnounced: boolean,
   performanceDates: string[],
   isHighlighted = false,
 ) => {
@@ -29,7 +41,7 @@ const seedShow = async (
     season: 'Test Season',
     year: 2026,
     synopsis: 'x',
-    isCurrent,
+    isAnnounced,
     isHighlighted,
   });
   if (performanceDates.length > 0) {
@@ -51,94 +63,95 @@ beforeEach(async () => {
   await env.DB.exec('DELETE FROM shows');
 });
 
-describe('current show state', () => {
-  it('is running while performances are still ahead', async () => {
-    await seedShow('upcoming', true, [iso(10), iso(12)]);
-    const show = await getCurrentShow(db());
-    expect(show?.state).toBe('running');
+describe('getPromotedShows', () => {
+  it('returns every announced show that has not closed, soonest first', async () => {
+    await seedShow('late', true, [iso(60), iso(61)]);
+    await seedShow('soon', true, [iso(5), iso(6)]);
+    await seedShow('draft', false, [iso(10)]);
+
+    const promoted = await getPromotedShows(db());
+    expect(promoted.map((s) => s.id)).toEqual(['soon', 'late']);
   });
 
-  it('is still running on closing day itself', async () => {
-    await seedShow('closing-tonight', true, [iso(-2), iso(0)]);
-    const show = await getCurrentShow(db());
-    expect(show?.state).toBe('running');
+  it('sorts a show with no dates yet after every dated one', async () => {
+    await seedShow('dated', true, [iso(30)]);
+    await seedShow('undated', true, []);
+
+    const promoted = await getPromotedShows(db());
+    expect(promoted.map((s) => s.id)).toEqual(['dated', 'undated']);
   });
 
-  // The actual bug this exists to prevent.
-  it('is closed once the last performance has passed', async () => {
-    await seedShow('finished', true, [iso(-40), iso(-38)]);
-    const show = await getCurrentShow(db());
-    expect(show?.state).toBe('closed');
+  it('drops a show the day after it closes', async () => {
+    await seedShow('closed', true, [iso(-4), iso(-3)]);
+
+    expect(await getPromotedShows(db())).toEqual([]);
   });
 
-  it('is running when no performances are scheduled yet', async () => {
-    // An announced show with no dates yet must not read as already over.
-    await seedShow('announced', true, []);
-    const show = await getCurrentShow(db());
-    expect(show?.state).toBe('running');
-  });
+  it('projects the endpoints the cards render', async () => {
+    await seedShow('run', true, [iso(5), iso(7), iso(6)]);
 
-  it('returns null when no show is flagged current', async () => {
-    await seedShow('past', false, [iso(-100)]);
-    expect(await getCurrentShow(db())).toBeNull();
-  });
-
-  it('exposes the last performance date for the closing note', async () => {
-    await seedShow('finished', true, [iso(-40), iso(-38)]);
-    const show = await getCurrentShow(db());
-    expect(show?.lastPerformance).toBe(iso(-38));
+    const [show] = await getPromotedShows(db());
+    expect(show!.firstPerformance).toBe(iso(5));
+    expect(show!.lastPerformance).toBe(iso(7));
   });
 });
 
-describe('past shows include closed-but-still-flagged runs', () => {
-  // Without this a closed show falls into limbo: no longer promoted, but
-  // absent from the archive too, until someone clears the flag by hand.
-  it('lists a show that is flagged current but has finished', async () => {
-    await seedShow('finished', true, [iso(-40)]);
+describe('getPastShows', () => {
+  it('holds closed shows whether or not they are announced', async () => {
+    await seedShow('announced-closed', true, [iso(-10)]);
+    await seedShow('archived', false, [iso(-20)]);
+
     const past = await getPastShows(db());
-    expect(past.map((s) => s.id)).toContain('finished');
+    expect(past.map((s) => s.id).sort()).toEqual(['announced-closed', 'archived']);
   });
 
-  it('does not list a show that is still running', async () => {
-    await seedShow('running', true, [iso(5)]);
+  it('never holds a show with no dates at all', async () => {
+    await seedShow('draft', false, []);
+
+    expect(await getPastShows(db())).toEqual([]);
+  });
+
+  it('orders by when the run ended', async () => {
+    await seedShow('fall', false, [iso(-200)]);
+    await seedShow('spring', false, [iso(-20)]);
+
     const past = await getPastShows(db());
-    expect(past.map((s) => s.id)).not.toContain('running');
-  });
-
-  it('still lists ordinary past shows', async () => {
-    await seedShow('old', false, [iso(-400)]);
-    const past = await getPastShows(db());
-    expect(past.map((s) => s.id)).toContain('old');
-  });
-
-  it('returns every finished show, highlighted or not', async () => {
-    await seedShow('plain', false, [iso(-100)], false);
-    await seedShow('starred', false, [iso(-100)], true);
-
-    // Highlighting used to filter this query, which is why the home page had
-    // collapsed to one card: one show in four carried the flag. It orders the
-    // home page now, and the archive lists everything.
-    expect((await getPastShows(db())).map((s) => s.id).sort()).toEqual(['plain', 'starred']);
-  });
-
-  it('includes a closed current show, highlighted or not', async () => {
-    await seedShow('finished-star', true, [iso(-40)], true);
-    expect((await getPastShows(db())).map((s) => s.id)).toContain('finished-star');
+    expect(past.map((s) => s.id)).toEqual(['spring', 'fall']);
   });
 });
 
-describe('a show appears in exactly one place', () => {
-  it('a running show is featured and not archived', async () => {
-    await seedShow('live', true, [iso(3)]);
-    expect((await getCurrentShow(db()))?.state).toBe('running');
-    expect((await getPastShows(db())).map((s) => s.id)).not.toContain('live');
+describe('getLastClosedAnnouncedShow', () => {
+  it('picks the most recent closed announced show', async () => {
+    await seedShow('older', true, [iso(-100)]);
+    await seedShow('newer', true, [iso(-5)]);
+    await seedShow('unannounced', false, [iso(-3)]);
+
+    const show = await getLastClosedAnnouncedShow(db());
+    expect(show!.id).toBe('newer');
+  });
+});
+
+describe('getIndexableShows', () => {
+  it('holds announced and past shows but never a draft', async () => {
+    await seedShow('upcoming', true, [iso(5)]);
+    await seedShow('past', false, [iso(-5)]);
+    await seedShow('draft', false, [iso(5)]);
+
+    const ids = (await getIndexableShows(db())).map((s) => s.id).sort();
+    expect(ids).toEqual(['past', 'upcoming']);
+  });
+});
+
+describe('getShow', () => {
+  it('marks an unannounced future show as a draft', async () => {
+    await seedShow('staged', false, [iso(20)]);
+
+    expect((await getShow(db(), 'staged'))!.isDraft).toBe(true);
   });
 
-  // A closed run is deliberately in both: still on the homepage as ended, and
-  // in the archive. That is the transition state, not a bug.
-  it('a closed run is shown as ended and also archived', async () => {
-    await seedShow('wrapped', true, [iso(-10)]);
-    expect((await getCurrentShow(db()))?.state).toBe('closed');
-    expect((await getPastShows(db())).map((s) => s.id)).toContain('wrapped');
+  it('does not mark a past show as a draft, announced or not', async () => {
+    await seedShow('old', false, [iso(-20)]);
+
+    expect((await getShow(db(), 'old'))!.isDraft).toBe(false);
   });
 });
