@@ -38,7 +38,7 @@ npm run typecheck         # wrangler types && tsc --noEmit
 |---|---|
 | `drizzle/0004_*.sql` + `drizzle/meta/` | The rename, the `company` column, the index swap |
 | `src/db/schema/content.ts` | `isAnnounced`, `company`, `SHOW_COMPANY` and its type |
-| `src/lib/dates.ts` | `formatDateRange`, `showDateLine`, `hasOpened`; `formatShowDates` deleted |
+| `src/lib/dates.ts` | `formatDateRange`, `showDateLine`; `formatShowDates` deleted |
 | `src/db/queries.ts` | `getPromotedShows`, `getPastShows`, `getLastClosedAnnouncedShow`, `getIndexableShows`, `getShow` with a draft flag |
 | `src/services/shows.ts` | `setAnnounced` replaces `setFeaturedShow`; `ShowInput.company`; `SHOW_COMPANY_LABEL`, `isShowCompany` |
 | `src/components/ShowCard.tsx` | New. The one card used by the home band and both `/shows` sections |
@@ -260,26 +260,6 @@ describe('showDateLine', () => {
   });
 });
 
-describe('hasOpened', () => {
-  const at = (iso: string) => DateTime.fromISO(iso, { zone: 'America/New_York' });
-  const run = [{ date: '2026-03-05', time: '7:30 PM' }, { date: '2026-03-07', time: '2:00 PM' }];
-
-  it('is false while opening night is ahead', () => {
-    expect(hasOpened(run, at('2026-03-04T20:00'))).toBe(false);
-  });
-
-  it('is true on opening night itself', () => {
-    expect(hasOpened(run, at('2026-03-05T09:00'))).toBe(true);
-  });
-
-  it('is true mid-run, which is when the countdown used to go negative', () => {
-    expect(hasOpened(run, at('2026-03-06T12:00'))).toBe(true);
-  });
-
-  it('is false for a show with no dates yet', () => {
-    expect(hasOpened([])).toBe(false);
-  });
-});
 ```
 
 Import `DateTime` from `luxon` and `hasOpened` alongside the other helpers.
@@ -319,22 +299,6 @@ export const DATES_TBA = 'Dates to be announced';
 export const showDateLine = (first: string | null, last: string | null): string =>
   first && last ? formatDateRange(first, last) : DATES_TBA;
 
-/**
- * Whether the run has already started.
- *
- * The home page counts down to opening night, which only makes sense while
- * opening night is ahead. Promoted shows are ordered by first performance,
- * so a show that opened last night outranks one opening tomorrow and takes
- * the hero - counting down to a date that has passed.
- */
-export function hasOpened(
-  performances: PerformanceLike[],
-  now: DateTime = DateTime.now(),
-): boolean {
-  if (performances.length === 0) return false;
-  const first = performances.map((p) => p.date).sort()[0]!;
-  return DateTime.fromISO(first, { zone: ZONE }).startOf('day') <= now.setZone(ZONE);
-}
 ```
 
 Delete `formatShowDates`. Its old single-date branch tested `unique.length === 1`, which after deduplication is exactly `first === last`, so `formatDateRange` reproduces all three of its output shapes. `PerformanceLike` stays — `hasClosed` and `hasOpened` both take it.
@@ -1161,17 +1125,6 @@ describe('concurrent shows', () => {
     expect(html).not.toContain('Also this season');
   });
 
-  it('does not count down to an opening night that has passed', async () => {
-    await seedShow('mid-run', { year: 2027, announced: true, lastDate: iso(2) });
-    await db()
-      .insert(showPerformances)
-      .values({ id: 'mid-run-p0', showId: 'mid-run', date: iso(-1), time: '7:30 PM' });
-
-    const html = await body('/');
-    expect(html).not.toContain('Opening Night In');
-    expect(html).toContain('Now playing');
-  });
-
   it('says the dates are unset rather than rendering a blank line', async () => {
     await db().insert(shows).values({
       id: 'no-dates-yet',
@@ -1250,34 +1203,7 @@ Then rename every `currentShow` in the hero JSX to `featured`, and replace each 
 
 `performances` is still needed for the countdown, so the fetch stays.
 
-- [ ] **Step 3b: Stop counting down to a date that has passed**
-
-The countdown targets `performances[0].date` — opening night — and renders whenever the run has not closed. Promoted shows are ordered by *first* performance, so a show that opened last night outranks one opening tomorrow and heroes with a countdown to a past date.
-
-Replace the countdown branch's condition, and give the slot something to hold mid-run so half the hero does not go blank:
-
-```tsx
-{closed ? (
-  /* the existing "That's a wrap" panel, unchanged */
-) : performances.length > 0 && !hasOpened(performances) ? (
-  <div class="flex justify-center lg:justify-end">
-    <CountdownTimer targetDate={performances[0]!.date} showTitle={featured.title} />
-  </div>
-) : performances.length > 0 ? (
-  <div class="flex justify-center lg:justify-end">
-    <div class="bg-white/10 backdrop-blur-sm rounded-2xl p-8 text-center max-w-sm">
-      <p class="font-display text-2xl font-bold text-white mb-2">Now playing</p>
-      <p class="text-white/70 text-sm">
-        {showDateLine(featured.firstPerformance, featured.lastPerformance)}
-      </p>
-    </div>
-  </div>
-) : null}
-```
-
-Import `hasOpened` and `showDateLine` from `~/lib/dates`, and drop `formatShowDates` from that import — after this step it has no callers in the file. `formatDate` is still used by the wrap panel.
-
-`home.tsx` needs four new or changed imports: `getPromotedShows` and `getLastClosedAnnouncedShow` from `~/db/queries` (replacing `getCurrentShow`), `ShowCard` from `~/components/ShowCard`, and `SHOW_COMPANY_LABEL` from `~/services/shows`.
+**Leave the countdown alone.** It looks like it counts down to a date that has passed once a run is underway, but it does not: `countdownScript` targets `date + 'T19:00:00'` — curtain, not midnight — and when that goes negative it zeroes every unit, reveals "The show has opened!", and clears the interval (`src/components/CountdownTimer.tsx:47-68`). So opening morning correctly counts down to that night, and mid-run correctly says the show has opened. Do not add a `hasOpened` guard; it would hide a working countdown for the whole of opening day.
 
 - [ ] **Step 4: Add the band**
 

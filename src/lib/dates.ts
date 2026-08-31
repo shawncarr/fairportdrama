@@ -47,20 +47,3 @@ export function hasClosed(
   const last = performances.map((p) => p.date).sort().at(-1)!;
   return DateTime.fromISO(last, { zone: ZONE }).endOf('day') < now.setZone(ZONE);
 }
-
-/**
- * Whether the run has already started.
- *
- * The home page counts down to opening night, which only makes sense while
- * opening night is ahead. Promoted shows are ordered by first performance,
- * so a show that opened last night outranks one opening tomorrow and takes
- * the hero - counting down to a date that has passed.
- */
-export function hasOpened(
-  performances: PerformanceLike[],
-  now: DateTime = DateTime.now(),
-): boolean {
-  if (performances.length === 0) return false;
-  const first = performances.map((p) => p.date).sort()[0]!;
-  return DateTime.fromISO(first, { zone: ZONE }).startOf('day') <= now.setZone(ZONE);
-}
