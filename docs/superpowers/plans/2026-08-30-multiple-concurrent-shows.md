@@ -142,22 +142,24 @@ Expected: PASS, 2 tests.
 
 Run: `npx drizzle-kit generate --name multiple_concurrent_shows`
 
-Drizzle-kit cannot tell a rename from a drop-plus-add, so it may prompt for `is_announced` and for `company`. **Answer "create column" for both.** That is deliberate: the snapshot describes the *end state* of the schema, which is identical whether you got there by rename or by drop-and-add, so letting drizzle-kit generate it gives you a correct machine-written snapshot. Only the SQL needs fixing, which is the next step. If the command blocks on a prompt in a non-interactive shell, run it in a terminal.
+Drizzle-kit cannot tell a rename from a drop-plus-add, so it prompts. **Answer that `is_announced` is renamed from `is_current`**, and that `company` is created. Answering "created" for `is_announced` emits a drop and an add, which discards the flag on every existing row.
+
+The prompt is an interactive select list. If the command blocks in a non-interactive shell, run it in a terminal — do not try to pipe an answer, since a blind newline selects "create column", which is the data-losing choice.
 
 Confirm it wrote three things: `drizzle/0004_multiple_concurrent_shows.sql`, `drizzle/meta/0004_snapshot.json`, and a new entry in `drizzle/meta/_journal.json`.
 
-- [ ] **Step 7: Fix the SQL so it renames instead of dropping**
+- [ ] **Step 7: Check the SQL, and fix it if drizzle-kit did not offer the rename**
 
-The generated `drizzle/0004_multiple_concurrent_shows.sql` will contain a drop of `is_current` and an add of `is_announced`. That would discard the flag on every existing row. Replace the whole file with:
+Open `drizzle/0004_multiple_concurrent_shows.sql`. It should read:
 
 ```sql
 ALTER TABLE `shows` RENAME COLUMN `is_current` TO `is_announced`;--> statement-breakpoint
 ALTER TABLE `shows` ADD `company` text;--> statement-breakpoint
-DROP INDEX IF EXISTS `idx_shows_current`;--> statement-breakpoint
+DROP INDEX `idx_shows_current`;--> statement-breakpoint
 CREATE INDEX `idx_shows_announced` ON `shows` (`is_announced`);
 ```
 
-Keep the `--> statement-breakpoint` separators; drizzle splits on them.
+If instead it drops `is_current` and adds `is_announced`, replace the file's contents with exactly the SQL above. The generated snapshot is still correct either way — a snapshot describes the schema's end state, not the route taken to it — so only the SQL needs the edit. Keep the `--> statement-breakpoint` separators; drizzle splits on them.
 
 - [ ] **Step 8: Verify the snapshot matches the schema**
 
@@ -338,7 +340,7 @@ describe('getPromotedShows', () => {
   });
 
   it('drops a show the day after it closes', async () => {
-    await seedShow('closed', true, [iso(-2), iso(-1)]);
+    await seedShow('closed', true, [iso(-4), iso(-3)]);
 
     expect(await getPromotedShows(db())).toEqual([]);
   });
@@ -379,8 +381,8 @@ describe('getPastShows', () => {
 describe('getLastClosedAnnouncedShow', () => {
   it('picks the most recent closed announced show', async () => {
     await seedShow('older', true, [iso(-100)]);
-    await seedShow('newer', true, [iso(-3)]);
-    await seedShow('unannounced', false, [iso(-1)]);
+    await seedShow('newer', true, [iso(-5)]);
+    await seedShow('unannounced', false, [iso(-3)]);
 
     const show = await getLastClosedAnnouncedShow(db());
     expect(show!.id).toBe('newer');
@@ -464,7 +466,16 @@ export type ShowRow = Awaited<ReturnType<typeof getPastShows>>[number];
 Delete `getCurrentShow` and its `ShowState` type. In its place:
 
 ```ts
-const closedSql = sql`${lastPerformanceDate} IS NOT NULL AND ${lastPerformanceDate} < ${today()}`;
+/**
+ * Whether a run has finished, as a WHERE fragment.
+ *
+ * A function, not a constant. `today()` bound once at module load would
+ * freeze the date for the life of the isolate, so a Worker that survived
+ * midnight would compare against yesterday - the same drift this change
+ * exists to remove.
+ */
+const closed = () =>
+  sql`${lastPerformanceDate} IS NOT NULL AND ${lastPerformanceDate} < ${today()}`;
 
 /**
  * Announced shows whose runs have not ended, soonest first.
@@ -481,7 +492,7 @@ export async function getPromotedShows(db: DB) {
   return db
     .select(showColumns)
     .from(shows)
-    .where(and(eq(shows.isAnnounced, true), sql`NOT (${closedSql})`))
+    .where(and(eq(shows.isAnnounced, true), sql`NOT (${closed()})`))
     .orderBy(
       sql`${firstPerformanceDate} IS NULL`,
       sql`${firstPerformanceDate} ASC`,
@@ -500,7 +511,7 @@ export async function getLastClosedAnnouncedShow(db: DB) {
   const [row] = await db
     .select(showColumns)
     .from(shows)
-    .where(and(eq(shows.isAnnounced, true), closedSql))
+    .where(and(eq(shows.isAnnounced, true), closed()))
     .orderBy(sql`${lastPerformanceDate} DESC`)
     .limit(1);
 
@@ -527,7 +538,7 @@ export async function getPastShows(db: DB) {
   return db
     .select(showColumns)
     .from(shows)
-    .where(closedSql)
+    .where(closed())
     .orderBy(desc(shows.year), sql`${lastPerformanceDate} DESC`, asc(shows.title));
 }
 
@@ -536,7 +547,7 @@ export async function getIndexableShows(db: DB) {
   return db
     .select({ id: shows.id })
     .from(shows)
-    .where(or(eq(shows.isAnnounced, true), closedSql));
+    .where(or(eq(shows.isAnnounced, true), closed()));
 }
 
 /**
@@ -551,15 +562,19 @@ export async function getShow(db: DB, id: string) {
   const [row] = await db.select(showColumns).from(shows).where(eq(shows.id, id)).limit(1);
   if (!row) return null;
 
-  const closed = row.lastPerformance !== null && row.lastPerformance < today();
-  return { ...row, closed, isDraft: !row.isAnnounced && !closed };
+  const hasClosed = row.lastPerformance !== null && row.lastPerformance < today();
+  return { ...row, closed: hasClosed, isDraft: !row.isAnnounced && !hasClosed };
 }
 ```
+
+`getShow` narrows from `db.select()` to `showColumns`, so it no longer returns `createdAt` and `updatedAt`. Its only caller is `src/routes/shows.tsx:88`, which uses neither.
 
 - [ ] **Step 6: Run the state tests**
 
 Run: `npx vitest run --config vitest.workers.config.ts src/db/show-state.workers-test.ts`
-Expected: PASS, all 12.
+Expected: PASS, all 11.
+
+Note `iso()` derives from the UTC date while `today()` derives from `America/New_York`, so a date one day back is ambiguous between 20:00 ET and midnight. Every "past" date in these tests is at least three days back for that reason.
 
 - [ ] **Step 7: Commit**
 
@@ -701,6 +716,8 @@ In the same file, add to `ShowInput`:
 
 Import `type ShowCompany` from `~/db/schema/content`. In `createShow`, change `isCurrent: false` (line 71) to `isAnnounced: false` and add `company: input.company` to the insert values. `updateShow` iterates `Object.entries(patch)` generically, so it needs no change.
 
+Making `company` required breaks the shared `input` fixture at `src/services/shows.workers-test.ts:29-37`, which eight tests pass to `createShow`. Add `company: null` to it. `tsconfig.json` includes `src/**/*`, so leaving it out fails `npm run typecheck` rather than only the tests.
+
 - [ ] **Step 5: Run the service tests**
 
 Run: `npx vitest run --config vitest.workers.config.ts src/services/shows.workers-test.ts`
@@ -812,43 +829,83 @@ git commit -m "feat(shows): add the card the season band and index share"
 
 - [ ] **Step 1: Write the failing route tests**
 
-Add to `src/routes/public-pages.workers-test.ts`, following the seeding helpers already in that file:
+`src/routes/public-pages.workers-test.ts` does **not** import `app`. It uses `get(path)` from `~/test/session` (which sets `redirect: 'manual'`) and a local `body(path)` at `:39` that asserts a 200 and returns the text. Redirect assertions must use `get`, because `body` throws on a 301.
+
+Add a self-contained describe block so it does not depend on the seeding in the surrounding blocks:
 
 ```ts
-  it('lists upcoming shows above past ones on the index', async () => {
-    const res = await app.request('/shows', {}, env);
-    expect(res.status).toBe(200);
+describe('the shows index', () => {
+  const seed = async (
+    id: string,
+    opts: { announced: boolean; date: string },
+  ) => {
+    await db().insert(shows).values({
+      id,
+      title: id,
+      season: 'Spring 2027',
+      year: 2027,
+      synopsis: 'A show.',
+      isAnnounced: opts.announced,
+    });
+    await db()
+      .insert(showPerformances)
+      .values({ id: `${id}-p`, showId: id, date: opts.date, time: '7:30 PM' });
+  };
 
-    const html = await res.text();
+  beforeEach(async () => {
+    await seed('upcoming-show', { announced: true, date: iso(10) });
+    await seed('staged-show', { announced: false, date: iso(20) });
+    await seed('archived-show', { announced: false, date: iso(-30) });
+  });
+
+  it('lists upcoming shows above past ones', async () => {
+    const html = await body('/shows');
     expect(html).toContain('Upcoming');
     expect(html.indexOf('Upcoming')).toBeLessThan(html.indexOf('Past Productions'));
   });
 
   it('redirects the old past-shows URL to the index for good', async () => {
-    const res = await app.request('/shows/past', {}, env);
+    const res = await get('/shows/past');
     expect(res.status).toBe(301);
     expect(res.headers.get('location')).toBe('/shows');
   });
 
   it('sends /shows/current to the soonest upcoming show', async () => {
-    const res = await app.request('/shows/current', {}, env);
+    const res = await get('/shows/current');
     expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toMatch(/^\/shows\//);
+    expect(res.headers.get('location')).toBe('/shows/upcoming-show');
   });
 
-  it('404s a draft show rather than serving it to anyone with the URL', async () => {
-    // unannounced, dates in the future
-    const res = await app.request('/shows/staged-show', {}, env);
-    expect(res.status).toBe(404);
+  it('404s a draft rather than serving it to anyone holding the URL', async () => {
+    expect((await get('/shows/staged-show')).status).toBe(404);
   });
 
   it('still serves a past show that was never announced', async () => {
-    const res = await app.request('/shows/archived-show', {}, env);
-    expect(res.status).toBe(200);
+    expect((await get('/shows/archived-show')).status).toBe(200);
   });
+
+  it('offers tickets on every announced running show, not just one', async () => {
+    await db()
+      .update(shows)
+      .set({ ticketUrl: 'https://tickets.example.com' })
+      .where(eq(shows.id, 'upcoming-show'));
+    await seed('second-show', { announced: true, date: iso(14) });
+    await db()
+      .update(shows)
+      .set({ ticketUrl: 'https://tickets.example.com/2' })
+      .where(eq(shows.id, 'second-show'));
+
+    expect(await body('/shows/upcoming-show')).toContain('Get Tickets');
+    expect(await body('/shows/second-show')).toContain('Get Tickets');
+  });
+});
 ```
 
-Seed `staged-show` (unannounced, future dates) and `archived-show` (unannounced, past dates) in that file's setup.
+That last test covers the plan's one deliberate behavior change on the show page. The file already imports `eq`, `shows`, and `showPerformances`; add an `iso` helper if it has none.
+
+- [ ] **Step 1b: Repoint the two existing tests that fetch `/shows/past`**
+
+`:301` ("appears in the past shows archive even while still flagged current") and `:313` ("the archive says so rather than showing an empty grid") both call `body('/shows/past')`, which now 301s and makes `body` throw. Change both to `body('/shows')`. Rename the first to drop "flagged current", which is no longer a thing.
 
 - [ ] **Step 2: Run and watch them fail**
 
@@ -857,7 +914,7 @@ Expected: FAIL — `/shows` 404s, `/shows/past` returns 200.
 
 - [ ] **Step 3: Replace the current and past routes with the index**
 
-In `src/routes/shows.tsx`, replace the `/shows/current` and `/shows/past` handlers. Register `/shows` **before** `/shows/:slug` so `shows` is not read as a slug — the file already relies on this ordering trick, as its comment about `new` notes.
+In `src/routes/shows.tsx`, replace the `/shows/current` and `/shows/past` handlers. Register `/shows` before `/shows/:slug` for clarity. (They cannot actually collide — different segment counts — unlike `/admin/shows/new`, where `admin.tsx` does depend on registration order.)
 
 ```tsx
 showRoutes.get('/shows/current', async (c) => {
@@ -973,42 +1030,51 @@ with one staged show, less so with four a year."
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `src/routes/home-past-shows.workers-test.ts`:
+First update the file's own helper. `seedShow` at `:24` takes an options object — `(id, { year, current?, highlighted?, lastDate })` — and sets `title: id`. Rename its `current` key to `announced` and the column it writes to `isAnnounced`. Then add a text helper beside it, since the file currently inlines `await (await get('/')).text()` at three call sites:
 
 ```ts
+const body = async (path: string) => (await get(path)).text();
+```
+
+Then add:
+
+```ts
+describe('concurrent shows', () => {
   it('heroes the soonest show and bands the rest', async () => {
-    await seedShow('varsity-show', true, [iso(10)]);
-    await seedShow('jv-show', true, [iso(25)]);
+    await seedShow('varsity-show', { year: 2027, announced: true, lastDate: iso(10) });
+    await seedShow('jv-show', { year: 2027, announced: true, lastDate: iso(25) });
 
     const html = await body('/');
     expect(html).toContain('Also this season');
-    expect(html.indexOf('Show varsity-show')).toBeLessThan(html.indexOf('Also this season'));
-    expect(html.indexOf('Also this season')).toBeLessThan(html.indexOf('Show jv-show'));
+    expect(html.indexOf('varsity-show')).toBeLessThan(html.indexOf('Also this season'));
+    expect(html.indexOf('Also this season')).toBeLessThan(html.indexOf('jv-show'));
   });
 
   it('hides the band when only one show is upcoming', async () => {
-    await seedShow('only-show', true, [iso(10)]);
+    await seedShow('only-show', { year: 2027, announced: true, lastDate: iso(10) });
 
     expect(await body('/')).not.toContain('Also this season');
   });
 
   it('keeps the wrap hero when every announced show has closed', async () => {
-    await seedShow('closed-show', true, [iso(-2)]);
+    await seedShow('closed-show', { year: 2026, announced: true, lastDate: iso(-30) });
 
     const html = await body('/');
-    expect(html).toContain("That's a wrap");
+    expect(html).toContain('That&rsquo;s a wrap');
     expect(html).not.toContain('Also this season');
   });
 
   it('never lists a promoted show among past productions', async () => {
-    await seedShow('upcoming', true, [iso(10)]);
-    await seedShow('older', false, [iso(-100)]);
+    await seedShow('upcoming-show', { year: 2027, announced: true, lastDate: iso(10) });
+    await seedShow('older-show', { year: 2024, lastDate: iso(-400) });
 
     const html = await body('/');
-    const pastSection = html.slice(html.indexOf('Past Productions'));
-    expect(pastSection).not.toContain('Show upcoming');
+    expect(html.slice(html.indexOf('Past Productions'))).not.toContain('upcoming-show');
   });
+});
 ```
+
+The wrap assertion matches the rendered entity, not an apostrophe — the template writes `That&rsquo;s a wrap`.
 
 - [ ] **Step 2: Run and watch them fail**
 
@@ -1048,6 +1114,8 @@ Replace the top of the `home.get('/')` handler:
 ```
 
 Then rename every `currentShow` in the hero JSX to `featured`, and replace each `currentShow.state === 'closed'` test with the local `closed` — there are three, guarding the ticket button, the countdown, and the closing note. Add the company badge beside `{featured.season}` in the eyebrow, using `SHOW_COMPANY_LABEL` exactly as the show page does.
+
+`home.tsx` needs four new or changed imports: `getPromotedShows` and `getLastClosedAnnouncedShow` from `~/db/queries` (replacing `getCurrentShow`), `ShowCard` from `~/components/ShowCard`, and `SHOW_COMPANY_LABEL` from `~/db/schema/content`.
 
 - [ ] **Step 4: Add the band**
 
@@ -1151,53 +1219,68 @@ git commit -m "feat(nav): collapse the shows dropdown to one index link"
 
 - [ ] **Step 1: Update the two admin suites**
 
-`src/routes/admin-pages.workers-test.ts` asserts copy this task replaces:
+Four existing assertions in `src/routes/admin-pages.workers-test.ts` break, not two:
 
-- `:313` "shows list marks a featured run that has already ended" — rewrite against the new status column, expecting `Closed`.
-- `:361` expects "not featured on the home page until you say so" on the new-show form — change to whatever the new copy says.
+- `:320` `toContain('featured, run over')` — becomes `Closed`.
+- `:337` `toContain('Stop featuring it')` — becomes the un-announce button's copy.
+- `:353` `toContain('Feature on the home page')` — becomes the announce button's copy.
+- `:361` `toContain('not featured on the home page until you say so')` — becomes the new-show form's copy.
 
-In `src/routes/admin-shows.workers-test.ts`, add:
+And in `src/routes/admin-shows.workers-test.ts`, replace the existing test at `:111` ("features and unfeatures the show"), which posts to `/feature` with a `featured` field and asserts `isCurrent` at `:120` and `:123`. That file uses `post(path, cookie, FormData)` from `~/test/session` and a local `setup()` that seeds `into-the-woods-2026`; it does not import `app` and uses no `URLSearchParams`.
 
 ```ts
+  const announce = (v: string) => {
+    const f = new FormData();
+    f.set('announced', v);
+    return f;
+  };
+
+  it('announces and un-announces the show', async () => {
+    const cookie = await setup();
+
+    await post('/admin/shows/into-the-woods-2026/announce', cookie, announce('1'));
+    expect((await all())[0]!.isAnnounced).toBe(true);
+
+    await post('/admin/shows/into-the-woods-2026/announce', cookie, announce('0'));
+    expect((await all())[0]!.isAnnounced).toBe(false);
+  });
+
   it('announces a show without disturbing another already announced', async () => {
-    const cookie = await signIn('board@example.com', APP_ROLE.Admin);
+    const cookie = await setup();
+    await db().insert(shows).values({
+      id: 'matilda-2027',
+      title: 'Matilda',
+      season: 'Spring 2027',
+      year: 2027,
+      synopsis: 'A second production.',
+    });
 
-    await app.request(`/admin/shows/show-a/announce`, {
-      method: 'POST',
-      body: new URLSearchParams({ announced: '1' }),
-      headers: { cookie },
-    }, env);
-    await app.request(`/admin/shows/show-b/announce`, {
-      method: 'POST',
-      body: new URLSearchParams({ announced: '1' }),
-      headers: { cookie },
-    }, env);
+    await post('/admin/shows/into-the-woods-2026/announce', cookie, announce('1'));
+    await post('/admin/shows/matilda-2027/announce', cookie, announce('1'));
 
-    const rows = await getDb(env.DB).select().from(shows);
-    expect(rows.filter((s) => s.isAnnounced)).toHaveLength(2);
+    const announced = (await all()).filter((s) => s.isAnnounced);
+    expect(announced.map((s) => s.id).sort()).toEqual([
+      'into-the-woods-2026',
+      'matilda-2027',
+    ]);
   });
 
   it('stores the company chosen on the form', async () => {
-    const cookie = await signIn('board@example.com', APP_ROLE.Admin);
-    await app.request('/admin/shows/new', {
-      method: 'POST',
-      body: new URLSearchParams({
-        title: 'Company Test',
-        season: 'Spring 2027',
-        year: '2027',
-        synopsis: 'x',
-        company: 'jv',
-      }),
-      headers: { cookie },
-    }, env);
+    const cookie = await setup();
+    const form = new FormData();
+    form.set('title', 'Company Test');
+    form.set('season', 'Spring 2027');
+    form.set('year', '2027');
+    form.set('synopsis', 'A show.');
+    form.set('company', 'jv');
+    await post('/admin/shows/new', cookie, form);
 
-    const [row] = await getDb(env.DB)
-      .select()
-      .from(shows)
-      .where(eq(shows.id, 'company-test-2027'));
+    const [row] = await db().select().from(shows).where(eq(shows.id, 'company-test-2027'));
     expect(row!.company).toBe('jv');
   });
 ```
+
+The second test is the admin-facing half of the regression this whole change exists to prevent.
 
 - [ ] **Step 2: Run and watch them fail**
 
@@ -1255,7 +1338,9 @@ In `ShowFormValues` add `company: string`, and in the form markup beside the sea
 </select>
 ```
 
-In both the create and update form parsers, read it as `company: (form.get('company') as ShowCompany) || null`, and pass it through to `createShow` and `updateShow`.
+There is one form parser, at `admin.tsx:3387`, shared by create and edit. Read the field there as `company: (form.get('company') as ShowCompany) || null` and pass it through to both `createShow` and `updateShow`.
+
+Adding `company: string` to `ShowFormValues` also breaks the two object literals that build one — `admin.tsx:3424` (the new-show defaults) and `:3559` (the edit form's values). Add `company: ''` to the first and `company: show.company ?? ''` to the second, or `npm run typecheck` fails.
 
 - [ ] **Step 7: Run the admin tests**
 
@@ -1285,11 +1370,13 @@ draft reads as what it is: a show with no public page yet."
 ```ts
   it('lists the shows index and no draft show', async () => {
     const xml = await (await app.request('/sitemap.xml', {}, env)).text();
-    expect(xml).toContain('<loc>https://example.com/shows</loc>');
+    expect(xml).toContain('<loc>http://localhost:8787/shows</loc>');
     expect(xml).not.toContain('/shows/past');
     expect(xml).not.toContain('staged-show');
   });
 ```
+
+`SITE_URL` is `http://localhost:8787` in the test environment (`wrangler.jsonc:80`); the production value is only set under `env.production`.
 
 - [ ] **Step 2: Run and watch it fail**
 
@@ -1325,12 +1412,21 @@ git commit -m "feat(seo): keep drafts out of the sitemap"
 Run: `npm run typecheck`
 Expected: clean. Any surviving `isCurrent` error on a `shows` row is a site the earlier tasks missed. Member-office `isCurrent` errors would mean the rename leaked past `shows`.
 
-- [ ] **Step 2: Both suites**
+- [ ] **Step 2: Update happy-paths, which breaks in four places**
+
+`src/routes/happy-paths.workers-test.ts` is not a nav-copy problem; it asserts deleted behavior:
+
+- `:61` and `:152` set `isCurrent` on seeded rows — rename to `isAnnounced`.
+- `:78-83` expects `/shows/current` to fall back to `/shows/past` — now `/shows`.
+- `:136-144` "marks a featured show whose run is still ahead as simply featured" expects `>featured<` and no `run over` — rewrite for the status column, expecting `Upcoming`.
+- `:146-160` "shows a dash for a production that is not featured" expects an em dash for `old-show`, which now renders `Draft` (unannounced, and its 2024 season has no performance rows, so it never closed). Rewrite it to assert `Draft`, or give the row a past performance date and assert `Closed`.
+
+- [ ] **Step 3: Both suites**
 
 Run: `npm test`
-Expected: all green. If `happy-paths.workers-test.ts` fails, it is asserting old nav copy — update it to match task 8.
+Expected: all green.
 
-- [ ] **Step 3: Confirm no stale links or names remain**
+- [ ] **Step 4: Confirm no stale links or names remain**
 
 ```bash
 grep -rn "isCurrent\|is_current" src/ scripts/ seed/ | grep -v "endYear\|office"
@@ -1340,7 +1436,7 @@ grep -rn "setFeaturedShow\|getCurrentShow" src/
 
 Expected: the first two return only the redirect handlers in `src/routes/shows.tsx`; the third returns nothing.
 
-- [ ] **Step 4: Exercise it locally against real data**
+- [ ] **Step 5: Exercise it locally against real data**
 
 ```bash
 npm run db:migrate:local
@@ -1348,15 +1444,17 @@ npm run seed:apply:local
 npm run dev
 ```
 
-Check by hand, since these are the paths no test covers end to end:
+Know what the seed actually holds before judging what you see: all four seeded shows have run. The Lightning Thief's performances are 2026-03-05 to -07 (`seed/content.sql:504-506`), and it is the only one with `is_announced` set. So the correct starting state is the wrap hero, not a countdown.
 
-- `/` heroes The Lightning Thief with a countdown, and shows no band (only one announced show in the seed).
-- `/shows` lists it under Upcoming with the other three under Past Productions.
-- `/shows/past` redirects to `/shows`; the header has one "Shows" link.
-- In the admin, announce a second show. Confirm both stay announced, the home page grows an "Also this season" band, and the first show still heroes.
-- Set one show's company to JV and confirm the badge reads "JV" on the card, the hero, and the show page — never `jv`.
+- `/` renders "That's a wrap" for The Lightning Thief, with no band and no countdown. A countdown here would mean the closed rule broke.
+- `/shows` shows an empty Upcoming section and all four productions under Past Productions.
+- `/shows/past` redirects to `/shows`; the header has one "Shows" link and no dropdown.
+- In the admin, add a show, give it performance dates a few weeks out, and announce it. The home page should now hero it with a countdown.
+- Announce a second future show. Confirm **both** stay announced — this is the regression the whole change exists to prevent — that the home page grows an "Also this season" band, and that the soonest of the two heroes.
+- Set one of them to JV. The badge must read "JV" on the card, the hero, and the show page. If `jv` appears anywhere on screen, a render site is printing the slug instead of the label.
+- Visit a show you created but did not announce. It must 404.
 
-- [ ] **Step 5: Final commit**
+- [ ] **Step 6: Final commit**
 
 ```bash
 git add -A
