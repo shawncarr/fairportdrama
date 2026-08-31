@@ -1283,7 +1283,7 @@ The secondary sort above is `lastPerformance`, not `year`, for the same reason `
 
 **Leave the countdown alone.** It looks like it counts down to a date that has passed once a run is underway, but it does not: `countdownScript` targets `date + 'T19:00:00'` — curtain, not midnight — and when that goes negative it zeroes every unit, reveals "The show has opened!", and clears the interval (`src/components/CountdownTimer.tsx:47-68`). So opening morning correctly counts down to that night, and mid-run correctly says the show has opened. Do not add a `hasOpened` guard; it would hide a working countdown for the whole of opening day.
 
-`home.tsx` imports to change: add `getPromotedShows` and `getLastClosedAnnouncedShow` from `~/db/queries` (dropping `getCurrentShow`), `ShowCard` from `~/components/ShowCard`, `showDateLine` from `~/lib/dates` (dropping `formatShowDates`; `formatDate` stays, the wrap panel uses it), and `SHOW_COMPANY_LABEL` from `~/services/shows`.
+`home.tsx` imports to change: add `getPromotedShows` and `getLastClosedAnnouncedShow` from `~/db/queries` (dropping `getCurrentShow`), `ShowCard` and `toShowCardView` from `~/components/ShowCard`, `showDateLine` from `~/lib/dates` (dropping `formatShowDates`; `formatDate` stays, the wrap panel uses it), and `SHOW_COMPANY_LABEL` from `~/services/shows`.
 
 - [ ] **Step 4: Add the band**
 
@@ -1298,17 +1298,7 @@ Directly after the hero `</section>` and before the "About This Website" section
             </h2>
             <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {alsoThisSeason.map((show) => (
-                <ShowCard
-                  show={{
-                    id: show.id,
-                    title: show.title,
-                    season: show.season,
-                    company: show.company,
-                    posterUrl: images.deliveryUrl(show.posterImageId, IMAGE_VARIANT.Poster),
-                    firstPerformance: show.firstPerformance,
-                    lastPerformance: show.lastPerformance,
-                  }}
-                />
+                <ShowCard show={toShowCardView(show, images)} />
               ))}
             </div>
           </div>
@@ -1677,7 +1667,7 @@ npm run dev
 Know what the seed actually holds before judging what you see: all four seeded shows have run. The Lightning Thief's performances are 2026-03-05 to -07 (`seed/content.sql:504-506`), and it is the only one with `is_announced` set. So the correct starting state is the wrap hero, not a countdown.
 
 - `/` renders "That's a wrap" for The Lightning Thief, with no band and no countdown. A countdown here would mean the closed rule broke.
-- `/shows` shows an empty Upcoming section and all four productions under Past Productions.
+- `/shows` shows no Upcoming section at all — it is hidden when nothing is upcoming — and all four productions under Past Productions.
 - `/shows/past` redirects to `/shows`; the header has one "Shows" link and no dropdown.
 - In the admin, add a show, give it performance dates a few weeks out, and announce it. The home page should now hero it with a countdown.
 - Announce a second future show. Confirm **both** stay announced — this is the regression the whole change exists to prevent — that the home page grows an "Also this season" band, and that the soonest of the two heroes.
