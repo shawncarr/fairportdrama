@@ -73,6 +73,19 @@ describe('hasOpened', () => {
     expect(hasOpened(run, at('2026-03-06T12:00'))).toBe(true);
   });
 
+  // Both helpers sort before reading an endpoint, so neither may depend on
+  // the caller handing them dates in order. getPerformances does today; a
+  // card rendering from a projected column would not.
+  it('reads the earliest date whatever order it is given them in', () => {
+    const scrambled = [
+      { date: '2026-03-07', time: '2:00 PM' },
+      { date: '2026-03-05', time: '7:30 PM' },
+      { date: '2026-03-06', time: '7:30 PM' },
+    ];
+    expect(hasOpened(scrambled, at('2026-03-04T20:00'))).toBe(false);
+    expect(hasOpened(scrambled, at('2026-03-05T09:00'))).toBe(true);
+  });
+
   it('is false for a show with no dates yet', () => {
     expect(hasOpened([])).toBe(false);
   });
