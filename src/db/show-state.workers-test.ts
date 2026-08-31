@@ -73,12 +73,15 @@ describe('getPromotedShows', () => {
     expect(promoted.map((s) => s.id)).toEqual(['soon', 'late']);
   });
 
+  // Ids chosen so the asc(title) tiebreak pulls the opposite way: sorted by
+  // title alone this is ['a-undated', 'z-dated']. Only the NULL-last sort key
+  // produces the expected order, so the test fails if that key inverts.
   it('sorts a show with no dates yet after every dated one', async () => {
-    await seedShow('dated', true, [iso(30)]);
-    await seedShow('undated', true, []);
+    await seedShow('z-dated', true, [iso(30)]);
+    await seedShow('a-undated', true, []);
 
     const promoted = await getPromotedShows(db());
-    expect(promoted.map((s) => s.id)).toEqual(['dated', 'undated']);
+    expect(promoted.map((s) => s.id)).toEqual(['z-dated', 'a-undated']);
   });
 
   it('drops a show the day after it closes', async () => {
@@ -87,12 +90,18 @@ describe('getPromotedShows', () => {
     expect(await getPromotedShows(db())).toEqual([]);
   });
 
-  it('projects the endpoints the cards render', async () => {
-    await seedShow('run', true, [iso(5), iso(7), iso(6)]);
+  // Two shows with disjoint runs, deliberately. Seeded with one, an
+  // uncorrelated subquery - a global MIN/MAX over every performance row -
+  // returns the same answer and the test passes while the correlation is
+  // broken. Drizzle renders an interpolated `${shows.id}` as a bare `"id"`
+  // that binds inside the subquery, which is exactly how that happens.
+  it('projects each show its own endpoints, not the table-wide ones', async () => {
+    await seedShow('early', true, [iso(5), iso(9), iso(7)]);
+    await seedShow('later', true, [iso(20), iso(25)]);
 
-    const [show] = await getPromotedShows(db());
-    expect(show!.firstPerformance).toBe(iso(5));
-    expect(show!.lastPerformance).toBe(iso(7));
+    const [early, later] = await getPromotedShows(db());
+    expect([early!.firstPerformance, early!.lastPerformance]).toEqual([iso(5), iso(9)]);
+    expect([later!.firstPerformance, later!.lastPerformance]).toEqual([iso(20), iso(25)]);
   });
 });
 
