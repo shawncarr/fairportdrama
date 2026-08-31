@@ -649,6 +649,23 @@ with:
 
 The first test is the regression this entire change exists to prevent. Update the file's imports, and rename `isCurrent` to `isAnnounced` in any seed helper it defines.
 
+One more test in the same file uses the deleted API and needs a rewrite, not a rename — `:224` `'decides whether the run reads as over'`, in `describe('performance dates')`. It calls `setFeaturedShow` and reads `getCurrentShow(db())!.state`, neither of which survives. Rewrite it against `getShow`, which now carries `closed`:
+
+```ts
+  it('decides whether the run reads as over', async () => {
+    const id = 'into-the-woods-2026';
+    await setAnnounced(db(), staff, id, true);
+
+    await replacePerformances(db(), staff, id, [{ date: '2020-01-01', time: '7:30 PM' }]);
+    expect((await getShow(db(), id))!.closed).toBe(true);
+
+    await replacePerformances(db(), staff, id, [{ date: '2099-01-01', time: '7:30 PM' }]);
+    expect((await getShow(db(), id))!.closed).toBe(false);
+  });
+```
+
+The file will not even import until this is done, so Step 5 cannot pass without it.
+
 - [ ] **Step 2: Run and watch them fail**
 
 Run: `npx vitest run --config vitest.workers.config.ts src/services/shows.workers-test.ts`
@@ -1060,7 +1077,7 @@ describe('concurrent shows', () => {
     await seedShow('closed-show', { year: 2026, announced: true, lastDate: iso(-30) });
 
     const html = await body('/');
-    expect(html).toContain('That&rsquo;s a wrap');
+    expect(html).toContain('a wrap');
     expect(html).not.toContain('Also this season');
   });
 
@@ -1074,7 +1091,9 @@ describe('concurrent shows', () => {
 });
 ```
 
-The wrap assertion matches the rendered entity, not an apostrophe — the template writes `That&rsquo;s a wrap`.
+The wrap assertion deliberately matches only `a wrap`. The template source reads `That&rsquo;s a wrap`, but the JSX transform decodes that entity at compile time and Hono escapes only `& < > ' "`, so the response body carries a literal U+2019 rather than `&rsquo;`. Matching the short substring sidesteps the question entirely.
+
+The new module-level `body` shares its name with three existing `const body = await (await get(...)).text()` bindings in this file — inside `listed()` and two tests. Shadowing is legal, so leave those alone; converting one in place would give you a temporal-dead-zone `ReferenceError` rather than the tidier code it looks like.
 
 - [ ] **Step 2: Run and watch them fail**
 
@@ -1282,6 +1301,11 @@ And in `src/routes/admin-shows.workers-test.ts`, replace the existing test at `:
 
 The second test is the admin-facing half of the regression this whole change exists to prevent.
 
+Two more references to the old path live in the permission tests further down the file and break on the rename:
+
+- `:136` `expect(body).not.toContain('/feature')` — becomes `'/announce'`. Left alone it still passes, but vacuously, and stops guarding anything.
+- `:147` posts to `/admin/shows/into-the-woods-2026/feature` expecting a 403. After the rename that path 404s and the assertion fails. Point it at `/announce`.
+
 - [ ] **Step 2: Run and watch them fail**
 
 Run: `npx vitest run --config vitest.workers.config.ts src/routes/admin-shows.workers-test.ts src/routes/admin-pages.workers-test.ts`
@@ -1338,9 +1362,19 @@ In `ShowFormValues` add `company: string`, and in the form markup beside the sea
 </select>
 ```
 
-There is one form parser, at `admin.tsx:3387`, shared by create and edit. Read the field there as `company: (form.get('company') as ShowCompany) || null` and pass it through to both `createShow` and `updateShow`.
+There is one form parser, at `admin.tsx:3387`, shared by create and edit. `ShowFormValues` holds raw strings so the form can be re-rendered with what the user typed after a validation error, so `company` is a `string` there and the coercion happens later:
 
-Adding `company: string` to `ShowFormValues` also breaks the two object literals that build one — `admin.tsx:3424` (the new-show defaults) and `:3559` (the edit form's values). Add `company: ''` to the first and `company: show.company ?? ''` to the second, or `npm run typecheck` fails.
+```ts
+// in the values literal at :3387
+    company: String(form.get('company') ?? ''),
+
+// at each call site - createShow at :3454, and the details handler
+    company: (values.company as ShowCompany) || null,
+```
+
+Assigning `ShowCompany | null` straight into `values.company` does not typecheck.
+
+Adding `company: string` to `ShowFormValues` also breaks the two object literals that build one — `admin.tsx:3424` (the new-show defaults) and `:3559` (the edit form's values). Add `company: ''` to the first and `company: show.company ?? ''` to the second.
 
 - [ ] **Step 7: Run the admin tests**
 
@@ -1367,9 +1401,26 @@ draft reads as what it is: a show with no public page yet."
 
 - [ ] **Step 1: Write the failing test**
 
+Add it inside the existing `describe('the sitemap')` at `:480`, which uses `get` — that file never imports `app`. The block seeds no draft, so the test has to seed its own; without that the draft assertion passes vacuously and proves nothing.
+
 ```ts
-  it('lists the shows index and no draft show', async () => {
-    const xml = await (await app.request('/sitemap.xml', {}, env)).text();
+  it('lists the shows index and never a draft show', async () => {
+    await db().insert(shows).values({
+      id: 'staged-show',
+      title: 'Staged Show',
+      season: 'Spring 2027',
+      year: 2027,
+      synopsis: 'Not announced yet.',
+      isAnnounced: false,
+    });
+    await db().insert(showPerformances).values({
+      id: 'staged-p',
+      showId: 'staged-show',
+      date: iso(30),
+      time: '7:30 PM',
+    });
+
+    const xml = await (await get('/sitemap.xml')).text();
     expect(xml).toContain('<loc>http://localhost:8787/shows</loc>');
     expect(xml).not.toContain('/shows/past');
     expect(xml).not.toContain('staged-show');
@@ -1425,6 +1476,10 @@ Expected: clean. Any surviving `isCurrent` error on a `shows` row is a site the 
 
 Run: `npm test`
 Expected: all green.
+
+- [ ] **Step 3b: Rename the last two seed fields**
+
+Two test files set `isCurrent` in their own local seed helpers and are not covered by any earlier task: `src/routes/public-pages.workers-test.ts:94` (`isCurrent: opts.featured`) and `src/routes/admin-pages.workers-test.ts:69`. Both are mechanical renames to `isAnnounced`, but the "Expected: PASS" step in tasks 6 and 9 depends on them.
 
 - [ ] **Step 4: Confirm no stale links or names remain**
 
