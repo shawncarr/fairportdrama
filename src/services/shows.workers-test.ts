@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
-import { getCurrentShow, getDb } from '~/db/queries';
+import { getDb, getShow } from '~/db/queries';
 import { showCast, showPerformances, shows } from '~/db/schema/content';
 import { auditEvents } from '~/db/schema/governance';
 import { AUDIT_ACTOR_KIND, type Actor } from '~/lib/audit/actor';
@@ -10,7 +10,7 @@ import {
   createShow,
   deleteShow,
   replacePerformances,
-  setFeaturedShow,
+  setAnnounced,
   updateShow,
 } from './shows';
 
@@ -34,6 +34,7 @@ const input = {
   synopsis: 'Fairy tales collide.',
   ticketUrl: null,
   isHighlighted: false,
+  company: null,
 };
 
 const dates = (showId: string) =>
@@ -60,11 +61,11 @@ describe('creating a show', () => {
     });
   });
 
-  it('does not feature it, so creating and announcing stay separate', async () => {
+  it('does not announce it, so creating and announcing stay separate', async () => {
     const created = await createShow(db(), staff, input);
     const [row] = await db().select().from(shows);
 
-    expect(row!.isCurrent).toBe(false);
+    expect(row!.isAnnounced).toBe(false);
     expect(created.ok).toBe(true);
   });
 
@@ -125,45 +126,49 @@ describe('editing a show', () => {
   });
 });
 
-describe('featuring a show', () => {
+describe('announcing a show', () => {
   beforeEach(async () => {
     await createShow(db(), staff, input);
     await createShow(db(), staff, { ...input, title: 'Matilda', year: 2027 });
     await env.DB.exec('DELETE FROM audit_events');
   });
 
-  it('is exclusive, so the home page never has to pick between two', async () => {
-    await setFeaturedShow(db(), staff, 'into-the-woods-2026');
-    await setFeaturedShow(db(), staff, 'matilda-2027');
+  it('leaves the first show announced when a second is announced', async () => {
+    await setAnnounced(db(), staff, 'into-the-woods-2026', true);
+    await setAnnounced(db(), staff, 'matilda-2027', true);
 
-    const featured = (await db().select().from(shows)).filter((s) => s.isCurrent);
-    expect(featured.map((s) => s.id)).toEqual(['matilda-2027']);
+    const announced = (await db().select().from(shows)).filter((s) => s.isAnnounced);
+    expect(announced.map((s) => s.id).sort()).toEqual([
+      'into-the-woods-2026',
+      'matilda-2027',
+    ]);
   });
 
-  it('can clear the feature entirely', async () => {
-    await setFeaturedShow(db(), staff, 'into-the-woods-2026');
-    await setFeaturedShow(db(), staff, null);
+  it('un-announces one show without touching the others', async () => {
+    await setAnnounced(db(), staff, 'into-the-woods-2026', true);
+    await setAnnounced(db(), staff, 'matilda-2027', true);
+    await setAnnounced(db(), staff, 'matilda-2027', false);
 
-    expect((await db().select().from(shows)).filter((s) => s.isCurrent)).toHaveLength(0);
-    expect(await getCurrentShow(db())).toBeNull();
+    const announced = (await db().select().from(shows)).filter((s) => s.isAnnounced);
+    expect(announced.map((s) => s.id)).toEqual(['into-the-woods-2026']);
   });
 
-  it('records which show replaced which', async () => {
-    await setFeaturedShow(db(), staff, 'into-the-woods-2026');
+  it('records the announcement as a diff on the show itself', async () => {
     await env.DB.exec('DELETE FROM audit_events');
-    await setFeaturedShow(db(), staff, 'matilda-2027');
+    await setAnnounced(db(), staff, 'into-the-woods-2026', true);
 
     const [audit] = await audits();
-    expect(audit!.diff).toEqual({
-      featuredShow: { before: 'into-the-woods-2026', after: 'matilda-2027' },
-    });
+    expect(audit!.diff).toEqual({ isAnnounced: { before: false, after: true } });
+    expect(audit!.targetId).toBe('into-the-woods-2026');
   });
 
-  it('does nothing when the show is already featured', async () => {
-    await setFeaturedShow(db(), staff, 'into-the-woods-2026');
+  it('does nothing when the show is already in that state', async () => {
+    await setAnnounced(db(), staff, 'into-the-woods-2026', true);
     await env.DB.exec('DELETE FROM audit_events');
 
-    expect((await setFeaturedShow(db(), staff, 'into-the-woods-2026')).changed).toBe(false);
+    expect(await setAnnounced(db(), staff, 'into-the-woods-2026', true)).toEqual({
+      changed: false,
+    });
     expect(await audits()).toHaveLength(0);
   });
 });
@@ -223,13 +228,13 @@ describe('performance dates', () => {
 
   it('decides whether the run reads as over', async () => {
     const id = 'into-the-woods-2026';
-    await setFeaturedShow(db(), staff, id);
+    await setAnnounced(db(), staff, id, true);
 
     await replacePerformances(db(), staff, id, [{ date: '2020-01-01', time: '7:30 PM' }]);
-    expect((await getCurrentShow(db()))!.state).toBe('closed');
+    expect((await getShow(db(), id))!.closed).toBe(true);
 
     await replacePerformances(db(), staff, id, [{ date: '2099-01-01', time: '7:30 PM' }]);
-    expect((await getCurrentShow(db()))!.state).toBe('running');
+    expect((await getShow(db(), id))!.closed).toBe(false);
   });
 });
 

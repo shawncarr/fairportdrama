@@ -1,4 +1,4 @@
-import { asc, eq, ne, sql } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import type { DB } from '~/db/queries';
 import {
   SHOW_COMPANY,
@@ -41,6 +41,7 @@ export interface ShowInput {
   synopsis: string;
   ticketUrl: string | null;
   isHighlighted: boolean;
+  company: ShowCompany | null;
 }
 
 export type CreateShowResult =
@@ -85,8 +86,9 @@ export async function createShow(
         venue: input.venue.trim() || DEFAULT_VENUE,
         synopsis: input.synopsis.trim(),
         ticketUrl: input.ticketUrl,
-        isCurrent: false,
+        isAnnounced: false,
         isHighlighted: input.isHighlighted,
+        company: input.company,
       }),
     ],
     {
@@ -159,56 +161,43 @@ export async function updateShow(
 }
 
 /**
- * Makes one show the featured production, or clears the feature entirely.
+ * Announces a show, or withdraws the announcement.
  *
- * Exclusive by construction. `getCurrentShow` selects the flagged row with
- * `limit(1)` and no ordering, so two shows flagged at once would leave the
- * homepage picking one arbitrarily - a state the admin could otherwise reach
- * with two clicks.
+ * One row, no side effects on any other. Its predecessor cleared the flag on
+ * every other show first, because the home page could render only one - a
+ * season with two concurrent productions makes that rule wrong rather than
+ * merely restrictive.
  */
-export async function setFeaturedShow(
+export async function setAnnounced(
   db: DB,
   actor: Actor,
-  id: string | null,
+  id: string,
+  announced: boolean,
 ): Promise<{ changed: boolean }> {
-  const [previous] = await db
-    .select({ id: shows.id })
+  const [current] = await db
+    .select({ isAnnounced: shows.isAnnounced })
     .from(shows)
-    .where(eq(shows.isCurrent, true))
+    .where(eq(shows.id, id))
     .limit(1);
 
-  if ((previous?.id ?? null) === id) return { changed: false };
+  if (!current || current.isAnnounced === announced) return { changed: false };
 
-  const writes = [];
-  if (previous) {
-    writes.push(
+  await writeWithAudit(
+    db,
+    actor,
+    [
       db
         .update(shows)
-        .set({ isCurrent: false, updatedAt: new Date().toISOString() })
-        .where(ne(shows.id, id ?? '')),
-    );
-  }
-  if (id) {
-    writes.push(
-      db
-        .update(shows)
-        .set({ isCurrent: true, updatedAt: new Date().toISOString() })
+        .set({ isAnnounced: announced, updatedAt: new Date().toISOString() })
         .where(eq(shows.id, id)),
-    );
-  }
-  if (writes.length === 0) return { changed: false };
-
-  await writeWithAudit(db, actor, writes as never, {
-    action: AUDIT_ACTION.ShowUpdated,
-    targetKind: AUDIT_ENTITY_KIND.Show,
-    targetId: id ?? (previous?.id as string),
-    // Keyed as `featuredShow` rather than `isCurrent`: the values are show
-    // ids, not the booleans that column holds, and a diff that lies about
-    // what it is describing is worse than no diff.
-    diff: { featuredShow: { before: previous?.id ?? null, after: id } },
-    payload: { featured: true },
-    relatedEntities: previous ? [{ kind: AUDIT_ENTITY_KIND.Show, id: previous.id }] : [],
-  });
+    ],
+    {
+      action: AUDIT_ACTION.ShowUpdated,
+      targetKind: AUDIT_ENTITY_KIND.Show,
+      targetId: id,
+      diff: { isAnnounced: { before: current.isAnnounced, after: announced } },
+    },
+  );
 
   return { changed: true };
 }
