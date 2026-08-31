@@ -1136,7 +1136,7 @@ Add the company badge beside the season in the hero:
 - [ ] **Step 5: Run the tests**
 
 Run: `npx vitest run --config vitest.workers.config.ts src/routes/public-pages.workers-test.ts`
-Expected: PASS.
+Expected: every test touching `/shows`, `/shows/current`, `/shows/past`, or `/shows/:slug` passes, including all eight new ones. **The file as a whole does not go green here** — seven tests still 500 because `home.tsx` and `system.tsx` import `getCurrentShow` and `formatShowDates`, deleted in tasks 2 and 3. Tasks 7 and 10 fix those. Do not chase them.
 
 - [ ] **Step 6: Commit**
 
