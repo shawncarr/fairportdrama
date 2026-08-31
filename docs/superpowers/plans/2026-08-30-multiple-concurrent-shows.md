@@ -189,7 +189,7 @@ Expected: every row present, `the-lightning-thief-2026` still has `is_announced`
 
 Three mechanical renames, so `npm run seed:apply:local` keeps working:
 
-- `seed/content.sql` — `is_current` to `is_announced` in the four `INSERT INTO shows` column lists (lines 283, 342, 419, 503).
+- `seed/content.sql` — `is_current` to `is_announced` in the four `INSERT INTO shows` column lists (lines 283, 342, 419, 503). This file is **gitignored** (`.gitignore:25`), so the edit lives only in your working tree and `git add seed/content.sql` silently does nothing. That is fine: it is a generated artifact, and `build-seed.mjs` — which is committed — regenerates it correctly. Anyone holding a stale local copy will hit `no column named is_current` on `seed:apply:local` after migrating, and regenerating fixes it.
 - `scripts/build-seed.mjs:181` — `is_current` to `is_announced` in the column list; `:195` — `data.isCurrent` to `data.isAnnounced ?? data.isCurrent ?? false`, since the archived Astro source it reads still uses the old key.
 - `scripts/verify-seed.mjs:173` — `s.data.isCurrent` to `s.data.isAnnounced ?? s.data.isCurrent`.
 
@@ -1627,9 +1627,10 @@ Expected: the first two return only the redirect handlers in `src/routes/shows.t
 
 ```bash
 npm run db:migrate:local
-npm run seed:apply:local
 npm run dev
 ```
+
+`seed:apply:local` is insert-only and fails with `UNIQUE constraint failed: members.id` against an already-populated database — pre-existing, not caused by this change. Only run it against a fresh database.
 
 Know what the seed actually holds before judging what you see: all four seeded shows have run. The Lightning Thief's performances are 2026-03-05 to -07 (`seed/content.sql:504-506`), and it is the only one with `is_announced` set. So the correct starting state is the wrap hero, not a countdown.
 
