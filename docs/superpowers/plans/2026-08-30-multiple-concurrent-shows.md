@@ -222,7 +222,7 @@ The tree does not typecheck at this commit. That is deliberate: the schema chang
 - Modify: `src/lib/dates.ts`
 - Test: `src/lib/dates.test.ts`
 
-Cards need to show a date range, but no card in this codebase fetches performances and none should start — see task 3. So the formatter has to work from two endpoint dates rather than a list. `formatShowDates` already reads only the earliest and latest date out of the list it is handed, so this is a split, not a rewrite.
+Cards need to show a date range, but no card in this codebase fetches performances and none should start — see task 3. So the formatter has to work from two endpoint dates rather than a list. `formatShowDates` already reads only the earliest and latest date out of the list it is handed, and its only two callers are being changed anyway, so it is replaced rather than kept.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -337,7 +337,7 @@ The existing `describe('formatShowDates')` block in `src/lib/dates.test.ts` test
 - [ ] **Step 4: Run the whole unit suite**
 
 Run: `npm run test:unit`
-Expected: PASS, including the pre-existing `formatShowDates` tests unchanged.
+Expected: PASS. The whole suite, not just this file — `formatShowDates` no longer exists, so anything still calling it fails here rather than at task 6.
 
 - [ ] **Step 5: Commit**
 
