@@ -38,7 +38,7 @@ npm run typecheck         # wrangler types && tsc --noEmit
 |---|---|
 | `drizzle/0004_*.sql` + `drizzle/meta/` | The rename, the `company` column, the index swap |
 | `src/db/schema/content.ts` | `isAnnounced`, `company`, `SHOW_COMPANY`, `SHOW_COMPANY_LABEL` |
-| `src/lib/dates.ts` | `formatDateRange`, `showDateLine` alongside existing helpers |
+| `src/lib/dates.ts` | `formatDateRange`, `showDateLine`, `hasOpened`; `formatShowDates` deleted |
 | `src/db/queries.ts` | `getPromotedShows`, `getPastShows`, `getLastClosedAnnouncedShow`, `getIndexableShows`, `getShow` with a draft flag |
 | `src/services/shows.ts` | `setAnnounced` replaces `setFeaturedShow`; `ShowInput.company` |
 | `src/components/ShowCard.tsx` | New. The one card used by the home band and both `/shows` sections |
@@ -112,6 +112,16 @@ export const SHOW_COMPANY_LABEL: Record<ShowCompany, string> = {
   jv: 'JV',
   varsity: 'Varsity',
 };
+
+/**
+ * Whether a submitted value is a company.
+ *
+ * `$type<ShowCompany>()` is a compile-time assertion and the column is plain
+ * TEXT with no CHECK, so a cast at the form boundary would let any string
+ * into the database. Mirrors `isNewsCategory` in `src/services/news.ts:173`.
+ */
+export const isShowCompany = (value: string): value is ShowCompany =>
+  Object.values(SHOW_COMPANY).includes(value as ShowCompany);
 ```
 
 `Record<ShowCompany, string>` is load-bearing: it makes the compiler reject a company added without a label.
@@ -242,7 +252,30 @@ describe('showDateLine', () => {
     expect(showDateLine(null, null)).toBe('Dates to be announced');
   });
 });
+
+describe('hasOpened', () => {
+  const at = (iso: string) => DateTime.fromISO(iso, { zone: 'America/New_York' });
+  const run = [{ date: '2026-03-05', time: '7:30 PM' }, { date: '2026-03-07', time: '2:00 PM' }];
+
+  it('is false while opening night is ahead', () => {
+    expect(hasOpened(run, at('2026-03-04T20:00'))).toBe(false);
+  });
+
+  it('is true on opening night itself', () => {
+    expect(hasOpened(run, at('2026-03-05T09:00'))).toBe(true);
+  });
+
+  it('is true mid-run, which is when the countdown used to go negative', () => {
+    expect(hasOpened(run, at('2026-03-06T12:00'))).toBe(true);
+  });
+
+  it('is false for a show with no dates yet', () => {
+    expect(hasOpened([])).toBe(false);
+  });
+});
 ```
+
+Import `DateTime` from `luxon` and `hasOpened` alongside the other helpers.
 
 Add `formatDateRange` and `showDateLine` to the existing import from `./dates` at the top of the file.
 
@@ -253,7 +286,9 @@ Expected: FAIL — `formatDateRange is not a function`.
 
 - [ ] **Step 3: Split the formatter**
 
-In `src/lib/dates.ts`, replace the body of `formatShowDates` and add the two new exports:
+`formatShowDates` has exactly two call sites — `home.tsx:72` and `shows.tsx:138` — and tasks 6 and 7 replace both with `showDateLine`. So this is a replacement, not a split: delete `formatShowDates` rather than leaving it behind as dead code.
+
+In `src/lib/dates.ts`:
 
 ```ts
 /**
@@ -271,20 +306,33 @@ export function formatDateRange(first: string, last: string): string {
   return `${a.toFormat('MMM d')} - ${b.toFormat('MMM d, yyyy')}`;
 }
 
-export function formatShowDates(performances: PerformanceLike[]): string {
-  if (performances.length === 0) return '';
-  const unique = [...new Set(performances.map((p) => p.date))].sort();
-  return formatDateRange(unique[0]!, unique[unique.length - 1]!);
-}
-
 /** A show announced before its schedule is locked still needs a date line. */
 export const DATES_TBA = 'Dates to be announced';
 
 export const showDateLine = (first: string | null, last: string | null): string =>
   first && last ? formatDateRange(first, last) : DATES_TBA;
+
+/**
+ * Whether the run has already started.
+ *
+ * The home page counts down to opening night, which only makes sense while
+ * opening night is ahead. Promoted shows are ordered by first performance,
+ * so a show that opened last night outranks one opening tomorrow and takes
+ * the hero - counting down to a date that has passed.
+ */
+export function hasOpened(
+  performances: PerformanceLike[],
+  now: DateTime = DateTime.now(),
+): boolean {
+  if (performances.length === 0) return false;
+  const first = performances.map((p) => p.date).sort()[0]!;
+  return DateTime.fromISO(first, { zone: ZONE }).startOf('day') <= now.setZone(ZONE);
+}
 ```
 
-`formatShowDates` keeps its signature and all its existing callers. Its old single-date branch tested `unique.length === 1`, which after deduplication is exactly `first === last`.
+Delete `formatShowDates`. Its old single-date branch tested `unique.length === 1`, which after deduplication is exactly `first === last`, so `formatDateRange` reproduces all three of its output shapes. `PerformanceLike` stays — `hasClosed` and `hasOpened` both take it.
+
+The existing `describe('formatShowDates')` block in `src/lib/dates.test.ts` tests a function that no longer exists. Convert its cases to `formatDateRange`, passing the first and last date instead of a performance array. Do not simply delete them; they are the only coverage of the month-spanning format.
 
 - [ ] **Step 4: Run the whole unit suite**
 
@@ -531,15 +579,18 @@ export async function getLastClosedAnnouncedShow(db: DB) {
  * is in the past" it would be vacuously true of a show with no dates, which
  * would pull unannounced drafts into the archive and the sitemap.
  *
- * Ordering was `year` alone, which is ambiguous the moment one year holds
- * four productions.
+ * Ordered by when the run ended, not by `year`. `year` is hand-entered and
+ * can disagree with the dates - a spring 2027 show belonging to the
+ * 2026-2027 season is easily entered as 2026 - so sorting by it first would
+ * group the archive wrongly and leave the date sort ordering within that
+ * mistake. Every row here has a last performance; that is what put it here.
  */
 export async function getPastShows(db: DB) {
   return db
     .select(showColumns)
     .from(shows)
     .where(closed())
-    .orderBy(desc(shows.year), sql`${lastPerformanceDate} DESC`, asc(shows.title));
+    .orderBy(sql`${lastPerformanceDate} DESC`, asc(shows.title));
 }
 
 /** Every show with a public page: announced, or finished. Not drafts. */
@@ -903,6 +954,11 @@ describe('the shows index', () => {
     expect((await get('/shows/archived-show')).status).toBe(200);
   });
 
+  it('shows a draft to whoever can edit it, so it can be checked first', async () => {
+    const cookie = await signIn('board@example.com', APP_ROLE.Admin);
+    expect((await get('/shows/staged-show', cookie)).status).toBe(200);
+  });
+
   it('offers tickets on every announced running show, not just one', async () => {
     await db()
       .update(shows)
@@ -920,7 +976,7 @@ describe('the shows index', () => {
 });
 ```
 
-That last test covers the plan's one deliberate behavior change on the show page. The file already imports `eq`, `shows`, and `showPerformances`; add an `iso` helper if it has none.
+That last test covers the plan's one deliberate behavior change on the show page. The file already imports `eq`, `shows`, and `showPerformances`; add an `iso` helper if it has none, and add `signIn` to the `~/test/session` import plus `APP_ROLE` from `~/db/schema/governance` for the draft-preview test.
 
 - [ ] **Step 1b: Repoint the two existing tests that fetch `/shows/past`**
 
@@ -1005,12 +1061,23 @@ In the `/shows/:slug` handler:
 
 ```tsx
   const show = await getShow(db, c.req.param('slug'));
-  if (!show || show.isDraft) return c.notFound();
+  if (!show) return c.notFound();
+  // A draft is hidden from visitors, not from the board member building it.
+  // Nothing in the admin links to a show's public page, so 404ing everyone
+  // would leave no way to check a page before announcing it - and announcing
+  // is the only other way to see it, which publishes it to the home page.
+  if (show.isDraft && !can(c.get('role') ?? null, 'show', 'update')) {
+    return c.notFound();
+  }
 ```
+
+`shows.tsx` does not currently import `can`; add it from `~/lib/auth/permissions`. `can` takes `AppRole | null` and returns false for null, so a signed-out visitor is refused without a special case.
 
 Then replace **both** occurrences of `show.isCurrent && !closed` — the gradient at what was line 108, and the Get Tickets button at what was line 162 — with `show.isAnnounced && !closed`.
 
 The ticket button is a deliberate behavior change: every announced running show now offers its own ticket link, where previously only the single featured show did. That is the point of concurrent productions.
+
+**Change the show page's date line too.** `shows.tsx:138` has the same `formatShowDates(performances)` problem — an announced show with no dates renders a blank `<dd>`. `show` comes from `getShow`, which now projects the endpoints, so use `showDateLine(show.firstPerformance, show.lastPerformance)` and change the import at `:18` from `formatShowDates` to `showDateLine`. `hasClosed` stays.
 
 Add the company badge beside the season in the hero:
 
@@ -1083,6 +1150,30 @@ describe('concurrent shows', () => {
     expect(html).not.toContain('Also this season');
   });
 
+  it('does not count down to an opening night that has passed', async () => {
+    await seedShow('mid-run', { year: 2027, announced: true, lastDate: iso(2) });
+    await db()
+      .insert(showPerformances)
+      .values({ id: 'mid-run-p0', showId: 'mid-run', date: iso(-1), time: '7:30 PM' });
+
+    const html = await body('/');
+    expect(html).not.toContain('Opening Night In');
+    expect(html).toContain('Now playing');
+  });
+
+  it('says the dates are unset rather than rendering a blank line', async () => {
+    await db().insert(shows).values({
+      id: 'no-dates-yet',
+      title: 'no-dates-yet',
+      season: 'Fall 2027',
+      year: 2027,
+      synopsis: 'Announced before the schedule locked.',
+      isAnnounced: true,
+    });
+
+    expect(await body('/')).toContain('Dates to be announced');
+  });
+
   it('never lists a promoted show among past productions', async () => {
     await seedShow('upcoming-show', { year: 2027, announced: true, lastDate: iso(10) });
     await seedShow('older-show', { year: 2024, lastDate: iso(-400) });
@@ -1139,6 +1230,41 @@ Replace the top of the `home.get('/')` handler:
 ```
 
 Then rename every `currentShow` in the hero JSX to `featured`, and replace each `currentShow.state === 'closed'` test with the local `closed` — there are three, guarding the ticket button, the countdown, and the closing note. Add the company badge beside `{featured.season}` in the eyebrow, using `SHOW_COMPANY_LABEL` exactly as the show page does.
+
+**Change the hero's date line.** It currently reads `{formatShowDates(performances)}`, which returns an empty string for a show announced before its schedule is locked — leaving a calendar icon beside nothing. `featured` carries the projected endpoints, so use them:
+
+```tsx
+<span>{showDateLine(featured.firstPerformance, featured.lastPerformance)}</span>
+```
+
+`performances` is still needed for the countdown, so the fetch stays.
+
+- [ ] **Step 3b: Stop counting down to a date that has passed**
+
+The countdown targets `performances[0].date` — opening night — and renders whenever the run has not closed. Promoted shows are ordered by *first* performance, so a show that opened last night outranks one opening tomorrow and heroes with a countdown to a past date.
+
+Replace the countdown branch's condition, and give the slot something to hold mid-run so half the hero does not go blank:
+
+```tsx
+{closed ? (
+  /* the existing "That's a wrap" panel, unchanged */
+) : performances.length > 0 && !hasOpened(performances) ? (
+  <div class="flex justify-center lg:justify-end">
+    <CountdownTimer targetDate={performances[0]!.date} showTitle={featured.title} />
+  </div>
+) : performances.length > 0 ? (
+  <div class="flex justify-center lg:justify-end">
+    <div class="bg-white/10 backdrop-blur-sm rounded-2xl p-8 text-center max-w-sm">
+      <p class="font-display text-2xl font-bold text-white mb-2">Now playing</p>
+      <p class="text-white/70 text-sm">
+        {showDateLine(featured.firstPerformance, featured.lastPerformance)}
+      </p>
+    </div>
+  </div>
+) : null}
+```
+
+Import `hasOpened` and `showDateLine` from `~/lib/dates`, and drop `formatShowDates` from that import — after this step it has no callers in the file. `formatDate` is still used by the wrap panel.
 
 `home.tsx` needs four new or changed imports: `getPromotedShows` and `getLastClosedAnnouncedShow` from `~/db/queries` (replacing `getCurrentShow`), `ShowCard` from `~/components/ShowCard`, and `SHOW_COMPANY_LABEL` from `~/db/schema/content`.
 
@@ -1375,10 +1501,10 @@ There is one form parser, at `admin.tsx:3387`, shared by create and edit. `ShowF
     company: String(form.get('company') ?? ''),
 
 // at each call site - createShow at :3454, and the details handler
-    company: (values.company as ShowCompany) || null,
+    company: isShowCompany(values.company) ? values.company : null,
 ```
 
-Assigning `ShowCompany | null` straight into `values.company` does not typecheck.
+Assigning `ShowCompany | null` straight into `values.company` does not typecheck. Do not reach for `as ShowCompany` instead: the cast asserts nothing at runtime, so a crafted POST stores any string, and the badge then renders as an empty pill — `{show.company && ...}` passes on a truthy value while `SHOW_COMPANY_LABEL[show.company]` is `undefined`. `readNewsForm` at `admin.tsx:3074` guards its enum exactly this way.
 
 Adding `company: string` to `ShowFormValues` also breaks the two object literals that build one — `admin.tsx:3424` (the new-show defaults) and `:3559` (the edit form's values). Add `company: ''` to the first and `company: show.company ?? ''` to the second.
 
@@ -1492,7 +1618,7 @@ Two test files set `isCurrent` in their own local seed helpers and are not cover
 ```bash
 grep -rn "isCurrent\|is_current" src/ scripts/ seed/ | grep -v "endYear\|office"
 grep -rn "/shows/past\|/shows/current" src/ --include="*.tsx" | grep -v workers-test
-grep -rn "setFeaturedShow\|getCurrentShow" src/
+grep -rn "setFeaturedShow\|getCurrentShow\|formatShowDates" src/
 ```
 
 Expected: the first two return only the redirect handlers in `src/routes/shows.tsx`; the third returns nothing.
