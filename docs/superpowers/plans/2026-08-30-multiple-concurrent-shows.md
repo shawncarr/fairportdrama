@@ -621,6 +621,8 @@ fetch."
 
 - [ ] **Step 1: Rewrite the exclusivity tests into their inverse**
 
+All four replacement tests below belong inside the existing `describe('featuring a show')` block at `:128`. Its `beforeEach` is what creates both `into-the-woods-2026` and `matilda-2027` (via `createShow` with title `Matilda`, year 2027) and clears `audit_events`. Moved outside that block the tests fail, because `setAnnounced` on a show that does not exist returns `{ changed: false }` and writes nothing. Rename the block to `describe('announcing a show')`.
+
 `src/services/shows.workers-test.ts` currently asserts the behavior being deleted. Replace three tests:
 
 - `:135` "is exclusive, so the home page never has to pick between two"
@@ -746,7 +748,7 @@ export async function setAnnounced(
 
 The diff is now honest about what it describes. Its predecessor wrote a `featuredShow` diff holding show ids, because the boolean it was actually setting would have misdescribed a change that moved a flag between two rows.
 
-Drop the now-unused `ne` from the `drizzle-orm` import at the top of the file if nothing else uses it.
+Drop `ne` from the `drizzle-orm` import at the top of the file. Its only use is at `:188`, inside `setFeaturedShow`, which this step deletes — verified, nothing else in the file calls it.
 
 - [ ] **Step 4: Add company to ShowInput**
 
@@ -756,7 +758,7 @@ In the same file, add to `ShowInput`:
   company: ShowCompany | null;
 ```
 
-Import `type ShowCompany` from `~/db/schema/content`. In `createShow`, change `isCurrent: false` (line 71) to `isAnnounced: false` and add `company: input.company` to the insert values. `updateShow` iterates `Object.entries(patch)` generically, so it needs no change.
+`type ShowCompany` is already imported at the top of this file — the company label and type guard live here, so the import landed with them. Do not add a second one. In `createShow`, change `isCurrent: false` to `isAnnounced: false` and add `company: input.company` to the insert values. `updateShow` iterates `Object.entries(patch)` generically, so it needs no change.
 
 Making `company` required breaks the shared `input` fixture at `src/services/shows.workers-test.ts:29-37`, which eight tests pass to `createShow`. Add `company: null` to it. `tsconfig.json` includes `src/**/*`, so leaving it out fails `npm run typecheck` rather than only the tests.
 
