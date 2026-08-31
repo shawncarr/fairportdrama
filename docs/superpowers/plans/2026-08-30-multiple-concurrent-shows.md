@@ -1085,7 +1085,13 @@ showRoutes.get('/shows', async (c) => {
 });
 ```
 
-The page has no `h1`; add one above both sections reading "Shows" so the heading order is not broken. Import `ShowCard` and swap `getCurrentShow` for `getPromotedShows` in the imports.
+The two sections above are `h2`, and `ShowCard`'s title is an `h3`, so the page needs an `h1` above both or the heading order starts at 2:
+
+```tsx
+      <h1 class="font-display text-4xl font-bold text-neutral-900">Shows</h1>
+```
+
+Imports for this file: add `ShowCard` from `~/components/ShowCard`, `getPromotedShows` and `getShow` from `~/db/queries` (dropping `getCurrentShow`), `showDateLine` from `~/lib/dates` (dropping `formatShowDates`), `can` from `~/lib/auth/permissions`, and `SHOW_COMPANY_LABEL` from `~/services/shows` — not from the schema; the label lives with the service that owns it.
 
 - [ ] **Step 4: Gate drafts and update both isCurrent sites on the show page**
 
@@ -1103,7 +1109,7 @@ In the `/shows/:slug` handler:
   }
 ```
 
-`shows.tsx` does not currently import `can`; add it from `~/lib/auth/permissions`. `can` takes `AppRole | null` and returns false for null, so a signed-out visitor is refused without a special case.
+`can` takes `AppRole | null` and returns false for null, so a signed-out visitor is refused without a special case. `c.get('role')` really is available here: `actorMiddleware` is registered `app.use('*', ...)` at `index.tsx:23` and sets `role` on every request, `null` when there is no session — it is not admin-only middleware. Verified; if it were admin-only this gate would 404 the very people it exists for.
 
 Then replace **both** occurrences of `show.isCurrent && !closed` — the gradient at what was line 108, and the Get Tickets button at what was line 162 — with `show.isAnnounced && !closed`.
 
