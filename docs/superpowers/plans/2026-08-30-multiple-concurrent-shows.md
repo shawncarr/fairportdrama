@@ -262,8 +262,6 @@ describe('showDateLine', () => {
 
 ```
 
-Import `DateTime` from `luxon` and `hasOpened` alongside the other helpers.
-
 Add `formatDateRange` and `showDateLine` to the existing import from `./dates` at the top of the file.
 
 - [ ] **Step 2: Run and watch them fail**
@@ -301,7 +299,7 @@ export const showDateLine = (first: string | null, last: string | null): string 
 
 ```
 
-Delete `formatShowDates`. Its old single-date branch tested `unique.length === 1`, which after deduplication is exactly `first === last`, so `formatDateRange` reproduces all three of its output shapes. `PerformanceLike` stays — `hasClosed` and `hasOpened` both take it.
+Delete `formatShowDates`. Its old single-date branch tested `unique.length === 1`, which after deduplication is exactly `first === last`, so `formatDateRange` reproduces all three of its output shapes. `PerformanceLike` stays — `hasClosed` still takes it.
 
 The existing `describe('formatShowDates')` block in `src/lib/dates.test.ts` tests a function that no longer exists. Convert its cases to `formatDateRange`, passing the first and last date instead of a performance array. Do not simply delete them; they are the only coverage of the month-spanning format.
 
