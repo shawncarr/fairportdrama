@@ -75,15 +75,25 @@ const showColumns = {
 };
 
 /**
- * Whether a run has finished, as a WHERE fragment.
+ * Whether a run has finished, as a self-contained WHERE fragment.
  *
  * A function, not a constant. `today()` bound once at module load would
  * freeze the date for the life of the isolate, so a Worker that survived
  * midnight would compare against yesterday - the same drift this change
  * exists to remove.
+ *
+ * Parenthesized here rather than at each call site. Bare, `A IS NOT NULL AND
+ * A < ?` is correct inside `or()` only by grace of AND binding tighter than
+ * OR, and outright wrong under a `NOT`.
+ *
+ * The `IS NOT NULL` guard is load-bearing for that negation, not for this
+ * fragment: `NULL < date` is already NULL, so a dateless show fails `closed()`
+ * with or without it. But `NOT (NULL < date)` is NULL too, so without the
+ * guard a show announced before its dates are set would silently vanish from
+ * getPromotedShows instead of leading it.
  */
 const closed = () =>
-  sql`${lastPerformanceDate} IS NOT NULL AND ${lastPerformanceDate} < ${today()}`;
+  sql`(${lastPerformanceDate} IS NOT NULL AND ${lastPerformanceDate} < ${today()})`;
 
 /**
  * Announced shows whose runs have not ended, soonest first.
@@ -100,7 +110,7 @@ export async function getPromotedShows(db: DB) {
   return db
     .select(showColumns)
     .from(shows)
-    .where(and(eq(shows.isAnnounced, true), sql`NOT (${closed()})`))
+    .where(and(eq(shows.isAnnounced, true), sql`NOT ${closed()}`))
     .orderBy(
       sql`${firstPerformanceDate} IS NULL`,
       sql`${firstPerformanceDate} ASC`,
@@ -114,13 +124,17 @@ export async function getPromotedShows(db: DB) {
  * Cannot reuse getPastShows: that now includes shows nobody ever announced,
  * and the morning after closing night the home page should name the show
  * that just ran rather than whatever is deepest in the archive.
+ *
+ * Two shows can share a closing night - that is the point of the JV and
+ * Varsity split - so the title breaks the tie. Without it the home page would
+ * name whichever row the table happened to yield first.
  */
 export async function getLastClosedAnnouncedShow(db: DB) {
   const [row] = await db
     .select(showColumns)
     .from(shows)
     .where(and(eq(shows.isAnnounced, true), closed()))
-    .orderBy(sql`${lastPerformanceDate} DESC`)
+    .orderBy(sql`${lastPerformanceDate} DESC`, asc(shows.title))
     .limit(1);
 
   return row ?? null;
@@ -128,10 +142,6 @@ export async function getLastClosedAnnouncedShow(db: DB) {
 
 /**
  * Shows that have finished, newest first.
- *
- * "Finished" requires at least one performance date. Phrased as "every date
- * is in the past" it would be vacuously true of a show with no dates, which
- * would pull unannounced drafts into the archive and the sitemap.
  *
  * Ordered by when the run ended, not by `year`. `year` is hand-entered and
  * can disagree with the dates - a spring 2027 show belonging to the
