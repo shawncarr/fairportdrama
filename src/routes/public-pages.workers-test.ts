@@ -602,7 +602,14 @@ describe('the remaining public pages', () => {
     // Any page: both live in BaseLayout.
     const html = await body('/members');
 
-    expect(html).toContain('href="/shows"');
+    // Scoped to each landmark. Asserted against the whole page, the footer's
+    // link alone satisfies the positive check, so deleting the header's
+    // entirely would pass.
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+    const footer = html.slice(html.indexOf('<footer'));
+
+    expect(header).toContain('href="/shows"');
+    expect(footer).toContain('href="/shows"');
     expect(html).not.toContain('href="/shows/current"');
     expect(html).not.toContain('href="/shows/past"');
   });
