@@ -66,7 +66,7 @@ async function seedFixture() {
     synopsis: 'A demigod quest.',
     ticketUrl: 'https://tickets.example.com',
     posterImageId: 'img-poster',
-    isCurrent: true,
+    isAnnounced: true,
   });
 
   await db().insert(showPerformances).values({
@@ -317,7 +317,7 @@ describe('pages an admin sees', () => {
     expect(html).toContain('The Lightning Thief');
     // Seeded with a 2026-03-07 closing night, so this is the stale-flag case
     // the column exists to surface.
-    expect(html).toContain('run over');
+    expect(html).toContain('Closed');
   });
 
   it('show page renders details, dates, cast, crew, artwork, and gallery', async () => {
@@ -334,7 +334,7 @@ describe('pages an admin sees', () => {
     expect(html).toContain('img-poster');
     expect(html).toContain('img-gallery');
     // Featured already, so it offers to stop rather than to start.
-    expect(html).toContain('Stop featuring it');
+    expect(html).toContain('Stop announcing it');
     // Cast exists, so deletion must be refused with a reason.
     expect(html).toContain('can no longer be deleted');
   });
@@ -350,7 +350,7 @@ describe('pages an admin sees', () => {
     });
 
     const html = await body('/admin/shows/empty-show', cookie);
-    expect(html).toContain('Feature on the home page');
+    expect(html).toContain('Announce on the home page');
     expect(html).toContain('Delete show');
   });
 
@@ -358,7 +358,7 @@ describe('pages an admin sees', () => {
     const cookie = await signIn('board@example.com', APP_ROLE.Admin);
     const html = await body('/admin/shows/new', cookie);
     expect(html).toContain('name="season"');
-    expect(html).toContain('not featured on the home page until you say so');
+    expect(html).toContain('not announced on the home page until you say so');
   });
 
   it('sponsors and spirit wear editors load existing rows', async () => {

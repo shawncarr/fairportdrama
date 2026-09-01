@@ -108,19 +108,67 @@ describe('the show page', () => {
     expect(await db().select().from(showPerformances)).toHaveLength(2);
   });
 
-  it('features and unfeatures the show', async () => {
+  const announce = (v: string) => {
+    const f = new FormData();
+    f.set('announced', v);
+    return f;
+  };
+
+  it('announces and un-announces the show', async () => {
     const cookie = await setup();
-    const feature = (v: string) => {
-      const f = new FormData();
-      f.set('featured', v);
-      return f;
-    };
 
-    await post('/admin/shows/into-the-woods-2026/feature', cookie, feature('1'));
-    expect((await all())[0]!.isCurrent).toBe(true);
+    await post('/admin/shows/into-the-woods-2026/announce', cookie, announce('1'));
+    expect((await all())[0]!.isAnnounced).toBe(true);
 
-    await post('/admin/shows/into-the-woods-2026/feature', cookie, feature('0'));
-    expect((await all())[0]!.isCurrent).toBe(false);
+    await post('/admin/shows/into-the-woods-2026/announce', cookie, announce('0'));
+    expect((await all())[0]!.isAnnounced).toBe(false);
+  });
+
+  it('announces a show without disturbing another already announced', async () => {
+    const cookie = await setup();
+    await db().insert(shows).values({
+      id: 'matilda-2027',
+      title: 'Matilda',
+      season: 'Spring 2027',
+      year: 2027,
+      synopsis: 'A second production.',
+    });
+
+    await post('/admin/shows/into-the-woods-2026/announce', cookie, announce('1'));
+    await post('/admin/shows/matilda-2027/announce', cookie, announce('1'));
+
+    const announced = (await all()).filter((s) => s.isAnnounced);
+    expect(announced.map((s) => s.id).sort()).toEqual([
+      'into-the-woods-2026',
+      'matilda-2027',
+    ]);
+  });
+
+  it('stores the company chosen on the form', async () => {
+    const cookie = await setup();
+    await post(
+      '/admin/shows/new',
+      cookie,
+      showForm({ title: 'Company Test', year: '2027', company: 'jv' }),
+    );
+
+    const [row] = await db().select().from(shows).where(eq(shows.id, 'company-test-2027'));
+    expect(row!.company).toBe('jv');
+  });
+
+  it('rejects a company the form could not have offered', async () => {
+    const cookie = await setup();
+    await post(
+      '/admin/shows/new',
+      cookie,
+      showForm({ title: 'Forged', year: '2027', company: 'not-a-company' }),
+    );
+
+    // isShowCompany guards the boundary. A bare cast would store this, and
+    // the badge would then render as an empty pill - `show.company &&` passes
+    // on any truthy string while the label lookup returns undefined.
+    const [row] = await db().select().from(shows).where(eq(shows.id, 'forged-2027'));
+    expect(row!.company).toBeNull();
   });
 
   it('hides the details and dates forms from an officer', async () => {
@@ -133,7 +181,7 @@ describe('the show page', () => {
     expect(body).toContain('Cast');
     expect(body).not.toContain('/details');
     expect(body).not.toContain('/performances');
-    expect(body).not.toContain('/feature');
+    expect(body).not.toContain('/announce');
   });
 
   it('refuses an officer the write routes too', async () => {
@@ -144,7 +192,7 @@ describe('the show page', () => {
       (await post('/admin/shows/into-the-woods-2026/details', cookie, showForm())).status,
     ).toBe(403);
     expect(
-      (await post('/admin/shows/into-the-woods-2026/feature', cookie, new FormData())).status,
+      (await post('/admin/shows/into-the-woods-2026/announce', cookie, new FormData())).status,
     ).toBe(403);
   });
 });

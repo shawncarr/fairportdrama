@@ -64,10 +64,12 @@ import { replaceCast, replaceCrew } from '~/services/casting';
 import { updateShowImages } from '~/services/show-images';
 import {
   DEFAULT_VENUE,
+  SHOW_COMPANY_LABEL,
   createShow,
   deleteShow,
+  isShowCompany,
   replacePerformances,
-  setFeaturedShow,
+  setAnnounced,
   showIsDeletable,
   updateShow,
 } from '~/services/shows';
@@ -3177,6 +3179,20 @@ const SHOW_IMAGE_FIELDS = [
   },
 ] as const;
 
+/**
+ * What the list says about a production. A show with no announcement has no
+ * public page at all, so "Draft" is worth surfacing rather than a bare dash.
+ */
+const showStatus = (
+  show: { isAnnounced: boolean; lastPerformance: string | null },
+  today: string,
+): { label: string; class: string } => {
+  const closed = show.lastPerformance !== null && show.lastPerformance < today;
+  if (closed) return { label: 'Closed', class: 'bg-neutral-100 text-neutral-700' };
+  if (show.isAnnounced) return { label: 'Upcoming', class: 'bg-green-100 text-green-800' };
+  return { label: 'Draft', class: 'bg-amber-100 text-amber-800' };
+};
+
 adminRoutes.get('/admin/shows', requirePermission('cast', 'assign'), async (c) => {
   const db = getDb(c.env.DB);
   const all = await db
@@ -3185,7 +3201,8 @@ adminRoutes.get('/admin/shows', requirePermission('cast', 'assign'), async (c) =
       title: shows.title,
       season: shows.season,
       year: shows.year,
-      isCurrent: shows.isCurrent,
+      isAnnounced: shows.isAnnounced,
+      company: shows.company,
       lastPerformance: sql<string | null>`(
         SELECT MAX(p.date) FROM show_performances p WHERE p.show_id = shows.id
       )`,
@@ -3219,40 +3236,37 @@ adminRoutes.get('/admin/shows', requirePermission('cast', 'assign'), async (c) =
             <tr>
               <th class="px-4 py-3 font-medium text-neutral-600">Show</th>
               <th class="px-4 py-3 font-medium text-neutral-600">Season</th>
-              <th class="px-4 py-3 font-medium text-neutral-600">Home page</th>
+              <th class="px-4 py-3 font-medium text-neutral-600">Company</th>
+              <th class="px-4 py-3 font-medium text-neutral-600">Status</th>
               <th class="px-4 py-3" />
             </tr>
           </thead>
           <tbody class="divide-y divide-neutral-100">
-            {all.map((show) => (
-              <tr>
-                <td class="px-4 py-2 text-neutral-900">{show.title}</td>
-                <td class="px-4 py-2 text-neutral-500">{show.season}</td>
-                <td class="px-4 py-2 text-neutral-500">
-                  {show.isCurrent ? (
-                    show.lastPerformance && show.lastPerformance < today ? (
-                      <span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs">
-                        featured, run over
-                      </span>
-                    ) : (
-                      <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs">
-                        featured
-                      </span>
-                    )
-                  ) : (
-                    '\u2014'
-                  )}
-                </td>
-                <td class="px-4 py-2 text-right">
-                  <a
-                    href={`/admin/shows/${show.id}`}
-                    class="text-sm text-primary-600 hover:text-primary-700"
-                  >
-                    Cast &amp; crew
-                  </a>
-                </td>
-              </tr>
-            ))}
+            {all.map((show) => {
+              const status = showStatus(show, today);
+              return (
+                <tr>
+                  <td class="px-4 py-2 text-neutral-900">{show.title}</td>
+                  <td class="px-4 py-2 text-neutral-500">{show.season}</td>
+                  <td class="px-4 py-2 text-neutral-500">
+                    {show.company ? SHOW_COMPANY_LABEL[show.company] : '\u2014'}
+                  </td>
+                  <td class="px-4 py-2 text-neutral-500">
+                    <span class={`px-2 py-0.5 rounded-full text-xs ${status.class}`}>
+                      {status.label}
+                    </span>
+                  </td>
+                  <td class="px-4 py-2 text-right">
+                    <a
+                      href={`/admin/shows/${show.id}`}
+                      class="text-sm text-primary-600 hover:text-primary-700"
+                    >
+                      Cast &amp; crew
+                    </a>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -3267,6 +3281,7 @@ adminRoutes.get('/admin/shows', requirePermission('cast', 'assign'), async (c) =
 interface ShowFormValues {
   title: string;
   season: string;
+  company: string;
   year: string;
   venue: string;
   synopsis: string;
@@ -3310,6 +3325,26 @@ function ShowFields({ values }: { values: ShowFormValues }) {
             value={values.season}
             class={field}
           />
+        </div>
+
+        <div>
+          <label for="s-company" class="block text-sm font-medium text-neutral-700 mb-1">
+            Company
+          </label>
+          <select
+            id="s-company"
+            name="company"
+            class="px-2 py-1.5 rounded border border-neutral-300 text-sm"
+          >
+            <option value="" selected={!values.company}>
+              Whole club
+            </option>
+            {Object.entries(SHOW_COMPANY_LABEL).map(([slug, label]) => (
+              <option value={slug} selected={values.company === slug}>
+                {label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>
@@ -3387,6 +3422,7 @@ const readShowForm = async (c: Context<AppEnv>) => {
   const values: ShowFormValues = {
     title: String(form.get('title') ?? '').trim(),
     season: String(form.get('season') ?? '').trim(),
+    company: String(form.get('company') ?? ''),
     year: String(form.get('year') ?? '').trim(),
     venue: String(form.get('venue') ?? '').trim(),
     synopsis: String(form.get('synopsis') ?? '').trim(),
@@ -3417,6 +3453,7 @@ adminRoutes.get('/admin/shows/new', requirePermission('show', 'create'), (c) =>
           values={{
             title: '',
             season: '',
+            company: '',
             year: String(new Date().getFullYear()),
             venue: '',
             synopsis: '',
@@ -3425,7 +3462,7 @@ adminRoutes.get('/admin/shows/new', requirePermission('show', 'create'), (c) =>
           }}
         />
         <p class="rounded-lg bg-neutral-50 ring-1 ring-neutral-200 px-4 py-3 text-sm text-neutral-700">
-          The show is not featured on the home page until you say so, and you can add
+          The show is not announced on the home page until you say so, and you can add
           cast, dates, and artwork after creating it.
         </p>
         <button
@@ -3459,6 +3496,7 @@ adminRoutes.post('/admin/shows/new', requirePermission('show', 'create'), async 
     synopsis: values.synopsis,
     ticketUrl: values.ticketUrl.length > 0 ? values.ticketUrl : null,
     isHighlighted: values.isHighlighted,
+    company: isShowCompany(values.company) ? values.company : null,
   });
 
   if (!result.ok) {
@@ -3539,8 +3577,8 @@ adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (
 
       {c.req.query('created') && (
         <p class="rounded-lg bg-green-50 text-green-800 text-sm px-4 py-3 ring-1 ring-green-200">
-          Show created. Add the dates, cast, and artwork below, then feature it when you
-          are ready to announce it.
+          Show created. Add the dates, cast, and artwork below, then announce it when
+          you are ready.
         </p>
       )}
 
@@ -3552,6 +3590,7 @@ adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (
               values={{
                 title: show.title,
                 season: show.season,
+                company: show.company ?? '',
                 year: String(show.year),
                 venue: show.venue,
                 synopsis: show.synopsis,
@@ -3608,34 +3647,34 @@ adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (
           <section class="space-y-3">
             <h2 class="font-display font-semibold text-neutral-900">Home page</h2>
             <div class="bg-white rounded-xl ring-1 ring-neutral-200 p-6">
-              {show.isCurrent ? (
+              {show.isAnnounced ? (
                 <>
                   <p class="text-sm text-neutral-700 mb-4">
-                    This is the featured show on the home page.
+                    This show is announced on the home page.
                   </p>
-                  <form method="post" action={`/admin/shows/${show.id}/feature`}>
-                    <input type="hidden" name="featured" value="0" />
+                  <form method="post" action={`/admin/shows/${show.id}/announce`}>
+                    <input type="hidden" name="announced" value="0" />
                     <button
                       type="submit"
                       class="px-5 py-2 bg-neutral-200 hover:bg-neutral-300 text-neutral-800 text-sm font-medium rounded-lg transition-colors"
                     >
-                      Stop featuring it
+                      Stop announcing it
                     </button>
                   </form>
                 </>
               ) : (
                 <>
                   <p class="text-sm text-neutral-700 mb-4">
-                    Featuring this show replaces whichever show is featured now - only one
-                    can be.
+                    Announcing this show puts it on the home page. Other announced shows
+                    stay announced.
                   </p>
-                  <form method="post" action={`/admin/shows/${show.id}/feature`}>
-                    <input type="hidden" name="featured" value="1" />
+                  <form method="post" action={`/admin/shows/${show.id}/announce`}>
+                    <input type="hidden" name="announced" value="1" />
                     <button
                       type="submit"
                       class="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors"
                     >
-                      Feature on the home page
+                      Announce on the home page
                     </button>
                   </form>
                 </>
@@ -4019,6 +4058,7 @@ adminRoutes.post(
       synopsis: values.synopsis.length > 0 ? values.synopsis : undefined,
       ticketUrl: values.ticketUrl.length > 0 ? values.ticketUrl : null,
       isHighlighted: values.isHighlighted,
+      company: isShowCompany(values.company) ? values.company : null,
     });
 
     return c.redirect(`/admin/shows/${showId}`, 302);
@@ -4046,14 +4086,14 @@ adminRoutes.post(
 );
 
 adminRoutes.post(
-  '/admin/shows/:id/feature',
+  '/admin/shows/:id/announce',
   requirePermission('show', 'update'),
   async (c) => {
     const showId = c.req.param('id');
     const form = await c.req.formData();
-    const wanted = String(form.get('featured') ?? '') === '1';
+    const wanted = String(form.get('announced') ?? '') === '1';
 
-    await setFeaturedShow(getDb(c.env.DB), c.get('actor'), wanted ? showId : null);
+    await setAnnounced(getDb(c.env.DB), c.get('actor'), showId, wanted);
     return c.redirect(`/admin/shows/${showId}`, 302);
   },
 );
