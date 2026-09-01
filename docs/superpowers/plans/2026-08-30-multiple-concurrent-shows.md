@@ -1419,12 +1419,12 @@ git commit -m "feat(nav): collapse the shows dropdown to one index link"
 
 Four existing assertions in `src/routes/admin-pages.workers-test.ts` break, not two:
 
-- `:320` `toContain('featured, run over')` — becomes `Closed`.
+- `:320` `toContain('run over')` — becomes `Closed`.
 - `:337` `toContain('Stop featuring it')` — becomes the un-announce button's copy.
 - `:353` `toContain('Feature on the home page')` — becomes the announce button's copy.
 - `:361` `toContain('not featured on the home page until you say so')` — becomes the new-show form's copy.
 
-And in `src/routes/admin-shows.workers-test.ts`, replace the existing test at `:111` ("features and unfeatures the show"), which posts to `/feature` with a `featured` field and asserts `isCurrent` at `:120` and `:123`. That file uses `post(path, cookie, FormData)` from `~/test/session` and a local `setup()` that seeds `into-the-woods-2026`; it does not import `app` and uses no `URLSearchParams`.
+And in `src/routes/admin-shows.workers-test.ts`, replace the existing test at `:111` ("features and unfeatures the show"), which posts to `/feature` with a `featured` field and asserts `isCurrent` at `:120` and `:123`. That file uses `post(path, cookie, FormData)` from `~/test/session`; it does not import `app` and uses no `URLSearchParams`. `setup()` signs in as Staff and creates `into-the-woods-2026` by posting `showForm()`, and `showForm(overrides)` builds the form body with per-key overrides — use it rather than assembling `FormData` by hand.
 
 ```ts
   const announce = (v: string) => {
@@ -1465,16 +1465,29 @@ And in `src/routes/admin-shows.workers-test.ts`, replace the existing test at `:
 
   it('stores the company chosen on the form', async () => {
     const cookie = await setup();
-    const form = new FormData();
-    form.set('title', 'Company Test');
-    form.set('season', 'Spring 2027');
-    form.set('year', '2027');
-    form.set('synopsis', 'A show.');
-    form.set('company', 'jv');
-    await post('/admin/shows/new', cookie, form);
+    await post(
+      '/admin/shows/new',
+      cookie,
+      showForm({ title: 'Company Test', year: '2027', company: 'jv' }),
+    );
 
     const [row] = await db().select().from(shows).where(eq(shows.id, 'company-test-2027'));
     expect(row!.company).toBe('jv');
+  });
+
+  it('rejects a company the form could not have offered', async () => {
+    const cookie = await setup();
+    await post(
+      '/admin/shows/new',
+      cookie,
+      showForm({ title: 'Forged', year: '2027', company: 'not-a-company' }),
+    );
+
+    // isShowCompany guards the boundary. A bare cast would store this, and
+    // the badge would then render as an empty pill - `show.company &&` passes
+    // on any truthy string while the label lookup returns undefined.
+    const [row] = await db().select().from(shows).where(eq(shows.id, 'forged-2027'));
+    expect(row!.company).toBeNull();
   });
 ```
 
