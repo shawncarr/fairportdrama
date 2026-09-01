@@ -1698,12 +1698,18 @@ Both files that seed `isCurrent` in a local helper are renamed by the task whose
 - [ ] **Step 4: Confirm no stale links or names remain**
 
 ```bash
-grep -rn "isCurrent\|is_current" src/ scripts/ seed/ | grep -v "endYear\|office"
+grep -rn "isCurrent" src/ scripts/
 grep -rn "/shows/past\|/shows/current" src/ --include="*.tsx" | grep -v workers-test
 grep -rn "setFeaturedShow\|getCurrentShow\|formatShowDates" src/
 ```
 
-Expected: the first two return only the redirect handlers in `src/routes/shows.tsx`; the third returns nothing.
+The first grep returns six hits after step 2, **all of them legitimate**. Do not "clean them up":
+
+- `src/db/queries.ts:287`, `:373`, `:409` — member offices' own derived `isCurrent`, from `endYear === null`. Unrelated to shows and must not be touched. (The `grep -v "endYear\|office"` this step used to carry did not exclude them, because those particular lines contain neither word.)
+- `scripts/build-seed.mjs:195` and `scripts/verify-seed.mjs:173` — deliberate `?? data.isCurrent` fallbacks. That tooling reads the archived Astro site, whose frontmatter still uses the old key.
+- `src/lib/dates.ts:42` — a doc comment describing the flag's history, which is still accurate as history.
+
+The second returns three hits in `src/routes/shows.tsx`: the two redirect handlers at `:34` and `:41`, and the comment at `:39` explaining why the 301 is permanent. The third returns nothing.
 
 - [ ] **Step 5: Exercise it locally against real data**
 
@@ -1727,9 +1733,11 @@ Know what the seed actually holds before judging what you see: all four seeded s
 - [ ] **Step 6: Final commit**
 
 ```bash
-git add -A
-git commit -m "test: cover concurrent shows end to end"
+git add src/routes/happy-paths.workers-test.ts
+git commit -m "test: bring the happy paths onto the announced model"
 ```
+
+Name the file rather than `git add -A` — the working tree may hold a local `seed/content.sql` and scratch files that should not land in the branch.
 
 ---
 
