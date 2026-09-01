@@ -1393,7 +1393,7 @@ With one index page there is nothing for a dropdown to hold, and a "Past Shows" 
 - [ ] **Step 4: Verify no in-app link points at the old URLs**
 
 Run: `grep -rn "/shows/past\|/shows/current" src/ --include="*.tsx" | grep -v workers-test`
-Expected: exactly two hits, both in `src/routes/shows.tsx` — the two redirect handlers themselves. Anything else is a link you missed.
+Expected: four hits, none of them a link you missed — the two redirect handlers at `shows.tsx:34` and `:41`, a comment at `shows.tsx:39` explaining the 301, and `system.tsx:30`, which is the sitemap's `staticPaths` entry that task 10 replaces. Anything beyond those four is a missed link.
 
 - [ ] **Step 5: Run the test**
 
