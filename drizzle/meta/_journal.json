@@ -36,6 +36,13 @@
       "when": 1788203875936,
       "tag": "0004_multiple_concurrent_shows",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1788295386469,
+      "tag": "0005_announce_shows_that_ran",
+      "breakpoints": true
     }
   ]
 }

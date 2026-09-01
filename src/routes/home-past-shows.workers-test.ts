@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { getDb } from '~/db/queries';
 import { SHOW_COMPANY, showPerformances, shows } from '~/db/schema/content';
 import { get, resetTables } from '~/test/session';
@@ -21,6 +22,8 @@ const iso = (daysFromNow: number) =>
 
 async function seedShow(
   id: string,
+  // Announced by default: every fixture here stands for a production that
+  // actually ran, and an unannounced show is a draft with no public page.
   opts: { year: number; announced?: boolean; highlighted?: boolean; lastDate: string },
 ) {
   await db().insert(shows).values({
@@ -30,7 +33,7 @@ async function seedShow(
     year: opts.year,
     venue: 'Auditorium',
     synopsis: 'A show.',
-    isAnnounced: opts.announced ?? false,
+    isAnnounced: opts.announced ?? true,
     isHighlighted: opts.highlighted ?? false,
   });
   await db().insert(showPerformances).values({
@@ -67,6 +70,14 @@ beforeEach(async () => {
 });
 
 describe('which shows are listed', () => {
+  // An upcoming production, so the hero is drawn from the season rather than
+  // from the archive. Every fixture below is now announced - announcement is
+  // what makes a show public - and without this the most recent closed one
+  // becomes the wrap hero and is filtered out of the very list under test.
+  beforeEach(async () => {
+    await seedShow('this-season', { year: 2027, lastDate: iso(30) });
+  });
+
   it('lists past productions that were never highlighted', async () => {
     await seedShow('charlottes-web', { year: 2025, lastDate: iso(-400) });
     await seedShow('hadestown', { year: 2025, lastDate: iso(-380) });
@@ -78,6 +89,11 @@ describe('which shows are listed', () => {
   });
 
   it('does not repeat the show already in the hero', async () => {
+    // This one wants the wrap hero specifically - a closed show standing in
+    // as the hero because nothing is upcoming - so it drops the block's
+    // upcoming fixture rather than inheriting it.
+    await db().delete(shows).where(eq(shows.id, 'this-season'));
+
     await seedShow('lightning-thief', {
       year: 2026,
       announced: true,
@@ -113,6 +129,14 @@ describe('which shows are listed', () => {
 });
 
 describe('ordering', () => {
+  // An upcoming production, so the hero is drawn from the season rather than
+  // from the archive. Every fixture below is now announced - announcement is
+  // what makes a show public - and without this the most recent closed one
+  // becomes the wrap hero and is filtered out of the very list under test.
+  beforeEach(async () => {
+    await seedShow('this-season', { year: 2027, lastDate: iso(30) });
+  });
+
   it('puts highlighted shows first, then the most recent', async () => {
     await seedShow('old-plain', { year: 2022, lastDate: iso(-1400) });
     await seedShow('new-plain', { year: 2025, lastDate: iso(-400) });

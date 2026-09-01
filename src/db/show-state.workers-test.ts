@@ -149,12 +149,20 @@ describe('getPromotedShows', () => {
 });
 
 describe('getPastShows', () => {
-  it('holds closed shows whether or not they are announced', async () => {
+  it('holds a closed show that was announced', async () => {
     await seedShow('announced-closed', true, [iso(-10)]);
-    await seedShow('archived', false, [iso(-20)]);
 
-    const past = await getPastShows(db());
-    expect(past.map((s) => s.id).sort()).toEqual(['announced-closed', 'archived']);
+    expect((await getPastShows(db())).map((s) => s.id)).toEqual(['announced-closed']);
+  });
+
+  // A show staged in the admin and then cancelled must not walk into the
+  // public archive on the day after the run it never had.
+  it('never publishes a show by the passage of time alone', async () => {
+    await seedShow('cancelled', false, [iso(-20)]);
+
+    expect(await getPastShows(db())).toEqual([]);
+    expect((await getIndexableShows(db())).map((s) => s.id)).toEqual([]);
+    expect((await getShow(db(), 'cancelled'))!.isDraft).toBe(true);
   });
 
   it('never holds a show with no dates at all', async () => {
@@ -164,16 +172,16 @@ describe('getPastShows', () => {
   });
 
   it('orders by when the run ended', async () => {
-    await seedShow('fall', false, [iso(-200)]);
-    await seedShow('spring', false, [iso(-20)]);
+    await seedShow('fall', true, [iso(-200)]);
+    await seedShow('spring', true, [iso(-20)]);
 
     const past = await getPastShows(db());
     expect(past.map((s) => s.id)).toEqual(['spring', 'fall']);
   });
 
   it('breaks a shared closing night on the title', async () => {
-    await seedShow('varsity', false, [iso(-10)]);
-    await seedShow('jv', false, [iso(-10)]);
+    await seedShow('varsity', true, [iso(-10)]);
+    await seedShow('jv', true, [iso(-10)]);
 
     expect((await getPastShows(db())).map((s) => s.id)).toEqual(['jv', 'varsity']);
   });
@@ -218,10 +226,11 @@ describe('getMemberShows', () => {
 });
 
 describe('getIndexableShows', () => {
-  it('holds announced and past shows but never a draft', async () => {
+  it('holds announced shows, running or finished, but never a draft', async () => {
     await seedShow('upcoming', true, [iso(5)]);
-    await seedShow('past', false, [iso(-5)]);
+    await seedShow('past', true, [iso(-5)]);
     await seedShow('draft', false, [iso(5)]);
+    await seedShow('cancelled', false, [iso(-5)]);
 
     const ids = (await getIndexableShows(db())).map((s) => s.id).sort();
     expect(ids).toEqual(['past', 'upcoming']);
@@ -235,8 +244,8 @@ describe('getShow', () => {
     expect((await getShow(db(), 'staged'))!.isDraft).toBe(true);
   });
 
-  it('reports a past show as closed and not a draft, announced or not', async () => {
-    await seedShow('old', false, [iso(-20)]);
+  it('reports an announced past show as closed and not a draft', async () => {
+    await seedShow('old', true, [iso(-20)]);
 
     const show = await getShow(db(), 'old');
     expect(show!.isDraft).toBe(false);

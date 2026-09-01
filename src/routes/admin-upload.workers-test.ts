@@ -67,6 +67,7 @@ beforeEach(async () => {
     season: 'Fall 2025',
     year: 2025,
     synopsis: 'A pig and a spider.',
+    isAnnounced: true,
   });
   // Its real run, so the show is a closed production with a public page.
   // Left dateless and unannounced it is a draft, and /shows/:slug 404s a

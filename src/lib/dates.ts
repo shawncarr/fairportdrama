@@ -23,7 +23,10 @@ export function formatDateRange(first: string, last: string): string {
   const b = DateTime.fromISO(last, { zone: ZONE });
 
   if (first === last) return a.toLocaleString(DateTime.DATE_MED);
-  if (a.month === b.month) return `${a.toFormat('MMMM d')}-${b.toFormat('d, yyyy')}`;
+  // Year too: without it a run mistyped across years renders as a
+  // three-day one, in the wrong year.
+  if (a.month === b.month && a.year === b.year)
+    return `${a.toFormat('MMMM d')}-${b.toFormat('d, yyyy')}`;
   return `${a.toFormat('MMM d')} - ${b.toFormat('MMM d, yyyy')}`;
 }
 

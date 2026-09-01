@@ -346,7 +346,7 @@ describe('the shows index', () => {
   beforeEach(async () => {
     await seed('upcoming-show', { announced: true, date: iso(10) });
     await seed('staged-show', { announced: false, date: iso(20) });
-    await seed('archived-show', { announced: false, date: iso(-30) });
+    await seed('archived-show', { announced: true, date: iso(-30) });
   });
 
   it('lists upcoming shows above past ones', async () => {
@@ -416,8 +416,17 @@ describe('the shows index', () => {
     expect((await get('/shows/staged-show')).status).toBe(404);
   });
 
-  it('still serves a past show that was never announced', async () => {
+  it('keeps serving a show after its run ends', async () => {
     expect((await get('/shows/archived-show')).status).toBe(200);
+  });
+
+  it('does not publish a cancelled show when its dates go by', async () => {
+    await seed('cancelled-show', { announced: false, date: iso(-30) });
+
+    // Staged, never announced, dates now past. Announcement is the whole
+    // test of whether a show is public - time alone must not publish one.
+    expect((await get('/shows/cancelled-show')).status).toBe(404);
+    expect(await body('/shows')).not.toContain('cancelled-show');
   });
 
   it('shows a draft to whoever can edit it, so it can be checked first', async () => {

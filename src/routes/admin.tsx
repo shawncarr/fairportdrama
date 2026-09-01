@@ -3650,7 +3650,8 @@ adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (
               {show.isAnnounced ? (
                 <>
                   <p class="text-sm text-neutral-700 mb-4">
-                    This show is announced on the home page.
+                    This show is announced: it is on the home page and has a public
+                    page. Un-announcing withdraws both, including after the run ends.
                   </p>
                   <form method="post" action={`/admin/shows/${show.id}/announce`}>
                     <input type="hidden" name="announced" value="0" />
@@ -3665,8 +3666,8 @@ adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (
               ) : (
                 <>
                   <p class="text-sm text-neutral-700 mb-4">
-                    Announcing this show puts it on the home page. Other announced shows
-                    stay announced.
+                    Announcing this show puts it on the home page and gives it a public
+                    page. Other announced shows stay announced.
                   </p>
                   <form method="post" action={`/admin/shows/${show.id}/announce`}>
                     <input type="hidden" name="announced" value="1" />

@@ -59,11 +59,14 @@ home.get('/', async (c) => {
     .sort(
       (a, b) =>
         Number(b.isHighlighted) - Number(a.isHighlighted) ||
-        (b.lastPerformance ?? '') < (a.lastPerformance ?? '')
+        // Parenthesised: `||` binds tighter than `?:`, so unbracketed this
+        // returns -1 whenever the highlight flags merely differ, in either
+        // direction, and the highlighted-first ordering is silently dead.
+        ((b.lastPerformance ?? '') < (a.lastPerformance ?? '')
           ? -1
           : (b.lastPerformance ?? '') > (a.lastPerformance ?? '')
             ? 1
-            : 0,
+            : 0),
     )
     .slice(0, 3);
 

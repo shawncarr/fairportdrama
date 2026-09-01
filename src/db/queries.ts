@@ -143,6 +143,13 @@ export async function getLastClosedAnnouncedShow(db: DB) {
 /**
  * Shows that have finished, newest first.
  *
+ * Announced, and closed. A show nobody announced never had a public page,
+ * and must not acquire one merely because its dates went by - a production
+ * staged in the admin and then cancelled would otherwise appear here, and in
+ * the sitemap, on the day after the run it never had. Migration 0005 marks
+ * every show that genuinely ran as announced, so nothing real is hidden by
+ * this.
+ *
  * Ordered by when the run ended, not by `year`. `year` is hand-entered and
  * can disagree with the dates - a spring 2027 show belonging to the
  * 2026-2027 season is easily entered as 2026 - so sorting by it first would
@@ -153,18 +160,23 @@ export async function getPastShows(db: DB) {
   return db
     .select(showColumns)
     .from(shows)
-    .where(closed())
+    .where(and(eq(shows.isAnnounced, true), closed()))
     .orderBy(sql`${lastPerformanceDate} DESC`, asc(shows.title));
 }
 
 /**
- * Not a draft: announced, or finished.
+ * Not a draft: announced.
  *
  * Anywhere a show's title can reach a visitor needs this, not just the show
  * page. The route gate hides `/shows/:slug` for a draft, but a title rendered
  * somewhere else is the same disclosure with a dead link attached.
+ *
+ * Announcement is the whole test - a run ending does not publish a show that
+ * was never announced. Withdrawing one is therefore un-announcing it, which
+ * does remove it from the archive; that is the intended way to retract a
+ * production, and the only way to break an existing link.
  */
-const notDraft = () => or(eq(shows.isAnnounced, true), closed())!;
+const notDraft = () => eq(shows.isAnnounced, true);
 
 /** Every show with a public page: announced, or finished. Not drafts. */
 export async function getIndexableShows(db: DB) {
@@ -174,17 +186,17 @@ export async function getIndexableShows(db: DB) {
 /**
  * One show, with whether it is still a draft.
  *
- * A draft is unannounced and unfinished - a record staged in the admin
- * before the club has announced it. `/shows/:slug` 404s for one. A finished
- * show stays reachable whether or not it was ever announced, so archiving
- * never breaks an old link.
+ * A draft is simply a show nobody has announced - a record staged in the
+ * admin, or one withdrawn. `/shows/:slug` 404s for one, for anyone without
+ * `show:update`. An announced show keeps its page after the run ends, so
+ * archiving never breaks an old link; only un-announcing does, deliberately.
  */
 export async function getShow(db: DB, id: string) {
   const [row] = await db.select(showColumns).from(shows).where(eq(shows.id, id)).limit(1);
   if (!row) return null;
 
   const hasClosed = row.lastPerformance !== null && row.lastPerformance < today();
-  return { ...row, closed: hasClosed, isDraft: !row.isAnnounced && !hasClosed };
+  return { ...row, closed: hasClosed, isDraft: !row.isAnnounced };
 }
 
 export async function getPerformances(db: DB, showId: string) {
