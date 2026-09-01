@@ -597,6 +597,15 @@ describe('the remaining public pages', () => {
     expect(res.status).toBe(404);
     expect(await res.text()).toContain('Page Not Found');
   });
+
+  it('points the nav and footer at the index, not the retired URLs', async () => {
+    // Any page: both live in BaseLayout.
+    const html = await body('/members');
+
+    expect(html).toContain('href="/shows"');
+    expect(html).not.toContain('href="/shows/current"');
+    expect(html).not.toContain('href="/shows/past"');
+  });
 });
 
 describe('the sitemap', () => {

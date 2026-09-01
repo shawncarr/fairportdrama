@@ -18,8 +18,7 @@ const attributions = (attributionData.attributions as Attribution[]).filter(
 );
 
 const quickLinks = [
-  { name: 'Current Show', href: '/shows/current' },
-  { name: 'Past Shows', href: '/shows/past' },
+  { name: 'Shows', href: '/shows' },
   { name: 'Members', href: '/members' },
   { name: 'News', href: '/news' },
   { name: 'Contact', href: '/about/contact' },

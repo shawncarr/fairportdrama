@@ -8,13 +8,7 @@ interface NavItem {
 
 const navigation: NavItem[] = [
   { name: 'Home', href: '/' },
-  {
-    name: 'Shows',
-    children: [
-      { name: 'Current Show', href: '/shows/current' },
-      { name: 'Past Shows', href: '/shows/past' },
-    ],
-  },
+  { name: 'Shows', href: '/shows' },
   { name: 'Members', href: '/members' },
   { name: 'Spirit Wear', href: '/spiritwear' },
   { name: 'News', href: '/news' },

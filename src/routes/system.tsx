@@ -497,7 +497,7 @@ export const notFound = (c: Parameters<Parameters<Hono<AppEnv>['notFound']>[0]>[
           Go Home
         </a>
         <a
-          href="/shows/past"
+          href="/shows"
           class="inline-flex items-center justify-center px-6 py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-semibold rounded-lg transition-colors"
         >
           Browse Shows
