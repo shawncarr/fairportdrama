@@ -610,6 +610,9 @@ describe('the remaining public pages', () => {
 
     expect(header).toContain('href="/shows"');
     expect(footer).toContain('href="/shows"');
+    // The label too: asserting only the href lets a rename to anything pass.
+    expect(header).toContain('>Shows<');
+    expect(footer).toContain('>Shows<');
     expect(html).not.toContain('href="/shows/current"');
     expect(html).not.toContain('href="/shows/past"');
   });
