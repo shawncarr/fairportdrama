@@ -156,6 +156,36 @@ describe('the show page', () => {
     expect(row!.company).toBe('jv');
   });
 
+  it('sets and clears the company through the details form', async () => {
+    const cookie = await setup();
+
+    await post(
+      '/admin/shows/into-the-woods-2026/details',
+      cookie,
+      showForm({ company: 'varsity' }),
+    );
+    expect((await all())[0]!.company).toBe('varsity');
+
+    // "Whole club" submits an empty value, so the details handler has to
+    // clear the column rather than leave it alone.
+    await post('/admin/shows/into-the-woods-2026/details', cookie, showForm({ company: '' }));
+    expect((await all())[0]!.company).toBeNull();
+  });
+
+  it('refuses a forged company on the details form too', async () => {
+    const cookie = await setup();
+
+    await post(
+      '/admin/shows/into-the-woods-2026/details',
+      cookie,
+      showForm({ company: 'not-a-company' }),
+    );
+
+    // The guard is on both write paths. Only /new was covered, so a cast
+    // here passed every test.
+    expect((await all())[0]!.company).toBeNull();
+  });
+
   it('rejects a company the form could not have offered', async () => {
     const cookie = await setup();
     await post(

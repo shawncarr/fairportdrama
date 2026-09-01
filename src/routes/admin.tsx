@@ -3422,7 +3422,7 @@ const readShowForm = async (c: Context<AppEnv>) => {
   const values: ShowFormValues = {
     title: String(form.get('title') ?? '').trim(),
     season: String(form.get('season') ?? '').trim(),
-    company: String(form.get('company') ?? ''),
+    company: String(form.get('company') ?? '').trim(),
     year: String(form.get('year') ?? '').trim(),
     venue: String(form.get('venue') ?? '').trim(),
     synopsis: String(form.get('synopsis') ?? '').trim(),

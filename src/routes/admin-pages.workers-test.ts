@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { getDb } from '~/db/queries';
 import {
   members,
@@ -311,16 +312,6 @@ describe('pages an admin sees', () => {
     expect(html).not.toContain('Auditions Open');
   });
 
-  it('shows list marks a featured run that has already ended', async () => {
-    const cookie = await signIn('board@example.com', APP_ROLE.Admin);
-    const html = await body('/admin/shows', cookie);
-
-    expect(html).toContain('The Lightning Thief');
-    // Seeded with a 2026-03-07 closing night, so this is the stale-flag case
-    // the column exists to surface.
-    expect(html).toContain('Closed');
-  });
-
   it('marks each of the three states, so a draft reads as having no page', async () => {
     await db().insert(shows).values([
       {
@@ -350,16 +341,93 @@ describe('pages an admin sees', () => {
     const cookie = await signIn('board@example.com', APP_ROLE.Admin);
     const html = await body('/admin/shows', cookie);
 
-    // Match the badge's text node, and keep the status words out of the
-    // seeded titles - a show called "Upcoming One" satisfies
-    // toContain('Upcoming') whatever the badge says.
-    expect(html).toContain('>Upcoming<');
-    expect(html).toContain('>Draft<');
-    expect(html).toContain('>Closed<');
+    // Each badge is read out of its own <tr>. Asserting the three labels
+    // appear somewhere in a three-row table proves nothing: swapping the
+    // announced and unannounced branches leaves all three strings present
+    // and every row mislabelled.
+    const row = (title: string) => {
+      const at = html.indexOf(title);
+      expect(at, `${title} is not in the list`).toBeGreaterThan(-1);
+      return html.slice(at, html.indexOf('</tr>', at));
+    };
+
+    expect(row('Still To Run')).toContain('>Upcoming<');
+    expect(row('Not Announced')).toContain('>Draft<');
+    expect(row('The Lightning Thief')).toContain('>Closed<');
+
+    // The column headers the status and company cells sit under.
+    expect(html).toContain('>Status<');
+    expect(html).toContain('>Company<');
+  });
+
+  it('names the company in the list, and dashes a show without one', async () => {
+    await db()
+      .update(shows)
+      .set({ company: SHOW_COMPANY.Jv })
+      .where(eq(shows.id, 'lightning-thief'));
+    await db().insert(shows).values({
+      id: 'whole-club',
+      title: 'Whole Club',
+      season: 'Fall 2027',
+      year: 2027,
+      synopsis: 'No company.',
+      isAnnounced: false,
+    });
+
+    const cookie = await signIn('board@example.com', APP_ROLE.Admin);
+    const html = await body('/admin/shows', cookie);
+
+    const row = (title: string) => {
+      const at = html.indexOf(title);
+      return html.slice(at, html.indexOf('</tr>', at));
+    };
+
+    // The label, never the provisional slug - the same property the card,
+    // the hero and the show page are each tested for.
+    expect(row('The Lightning Thief')).toContain('JV');
+    expect(row('The Lightning Thief')).not.toContain('>jv<');
+    expect(row('Whole Club')).toContain('\u2014');
+  });
+
+  it('wires the announce button to this show, and to the right field', async () => {
+    const cookie = await signIn('board@example.com', APP_ROLE.Admin);
+    const html = await body('/admin/shows/lightning-thief', cookie);
+
+    // Nothing else connects the rendered panel to the route: the service
+    // tests post hand-built form data. Renaming the hidden field back to
+    // `featured` turns the Announce button into an un-announce button, and
+    // every test still passes.
+    expect(html).toContain('action="/admin/shows/lightning-thief/announce"');
+    expect(html).toContain('name="announced"');
+    expect(html).not.toContain('name="featured"');
+  });
+
+  it('wires the un-announced show\u2019s button the same way', async () => {
+    await db().insert(shows).values({
+      id: 'not-yet',
+      title: 'Not Yet',
+      season: 'Fall 2027',
+      year: 2027,
+      synopsis: 'Staged.',
+      isAnnounced: false,
+    });
+
+    const cookie = await signIn('board@example.com', APP_ROLE.Admin);
+    const html = await body('/admin/shows/not-yet', cookie);
+
+    // The panel has two branches and the seeded show only ever renders one.
+    // This is the branch whose field name, if it drifts back to `featured`,
+    // makes the Announce button silently un-announce.
+    expect(html).toContain('action="/admin/shows/not-yet/announce"');
+    expect(html).toContain('name="announced"');
+    expect(html).not.toContain('name="featured"');
   });
 
   it('preselects the company on the edit form', async () => {
-    await db().update(shows).set({ company: SHOW_COMPANY.Jv });
+    await db()
+      .update(shows)
+      .set({ company: SHOW_COMPANY.Jv })
+      .where(eq(shows.id, 'lightning-thief'));
 
     const cookie = await signIn('board@example.com', APP_ROLE.Admin);
     const html = await body('/admin/shows/lightning-thief', cookie);
