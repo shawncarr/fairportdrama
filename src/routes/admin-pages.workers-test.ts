@@ -7,6 +7,7 @@ import {
   showCast,
   showCrew,
   showGalleryImages,
+  SHOW_COMPANY,
   showPerformances,
   shows,
   sponsors,
@@ -318,6 +319,52 @@ describe('pages an admin sees', () => {
     // Seeded with a 2026-03-07 closing night, so this is the stale-flag case
     // the column exists to surface.
     expect(html).toContain('Closed');
+  });
+
+  it('marks each of the three states, so a draft reads as having no page', async () => {
+    await db().insert(shows).values([
+      {
+        id: 'still-to-run',
+        title: 'Still To Run',
+        season: 'Spring 2027',
+        year: 2027,
+        synopsis: 'Announced, still to run.',
+        isAnnounced: true,
+      },
+      {
+        id: 'not-announced',
+        title: 'Not Announced',
+        season: 'Fall 2027',
+        year: 2027,
+        synopsis: 'Not announced.',
+        isAnnounced: false,
+      },
+    ]);
+    await db().insert(showPerformances).values({
+      id: 'still-to-run-p',
+      showId: 'still-to-run',
+      date: '2099-01-01',
+      time: '7:30 PM',
+    });
+
+    const cookie = await signIn('board@example.com', APP_ROLE.Admin);
+    const html = await body('/admin/shows', cookie);
+
+    // Match the badge's text node, and keep the status words out of the
+    // seeded titles - a show called "Upcoming One" satisfies
+    // toContain('Upcoming') whatever the badge says.
+    expect(html).toContain('>Upcoming<');
+    expect(html).toContain('>Draft<');
+    expect(html).toContain('>Closed<');
+  });
+
+  it('preselects the company on the edit form', async () => {
+    await db().update(shows).set({ company: SHOW_COMPANY.Jv });
+
+    const cookie = await signIn('board@example.com', APP_ROLE.Admin);
+    const html = await body('/admin/shows/lightning-thief', cookie);
+
+    expect(html).toContain('value="jv" selected');
   });
 
   it('show page renders details, dates, cast, crew, artwork, and gallery', async () => {

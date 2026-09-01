@@ -3334,7 +3334,7 @@ function ShowFields({ values }: { values: ShowFormValues }) {
           <select
             id="s-company"
             name="company"
-            class="px-2 py-1.5 rounded border border-neutral-300 text-sm"
+            class={field}
           >
             <option value="" selected={!values.company}>
               Whole club
