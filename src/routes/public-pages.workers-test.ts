@@ -637,6 +637,28 @@ describe('the sitemap', () => {
     expect(xml).not.toContain('draft-post');
   });
 
+  it('lists the shows index and never a draft show', async () => {
+    await db().insert(shows).values({
+      id: 'staged-show',
+      title: 'Staged Show',
+      season: 'Spring 2027',
+      year: 2027,
+      synopsis: 'Not announced yet.',
+      isAnnounced: false,
+    });
+    await db().insert(showPerformances).values({
+      id: 'staged-p',
+      showId: 'staged-show',
+      date: iso(30),
+      time: '7:30 PM',
+    });
+
+    const xml = await (await get('/sitemap.xml')).text();
+    expect(xml).toContain('<loc>http://localhost:8787/shows</loc>');
+    expect(xml).not.toContain('/shows/past');
+    expect(xml).not.toContain('staged-show');
+  });
+
   it('robots points at the sitemap and keeps crawlers out of the admin', async () => {
     const txt = await (await get('/robots.txt')).text();
     expect(txt).toContain('Disallow: /admin');

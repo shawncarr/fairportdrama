@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '~/env';
 import { describeError } from '~/lib/errors';
 import { findByToken } from '~/services/newsletter';
-import { getDb, getIndexableMemberIds, getPastShows, getPublishedNews, getCurrentShow } from '~/db/queries';
+import { getDb, getIndexableMemberIds, getIndexableShows, getPublishedNews } from '~/db/queries';
 
 export const systemRoutes = new Hono<AppEnv>();
 
@@ -18,16 +18,15 @@ systemRoutes.get('/sitemap.xml', async (c) => {
   const db = getDb(c.env.DB);
   const base = c.env.SITE_URL.replace(/\/$/, '');
 
-  const [pastShows, currentShow, memberIds, news] = await Promise.all([
-    getPastShows(db),
-    getCurrentShow(db),
+  const [showIds, memberIds, news] = await Promise.all([
+    getIndexableShows(db),
     getIndexableMemberIds(db),
     getPublishedNews(db),
   ]);
 
   const staticPaths = [
     '/',
-    '/shows/past',
+    '/shows',
     '/members',
     '/members/alumni',
     '/news',
@@ -43,8 +42,7 @@ systemRoutes.get('/sitemap.xml', async (c) => {
 
   const urls = [
     ...staticPaths,
-    ...(currentShow ? [`/shows/${currentShow.id}`] : []),
-    ...pastShows.map((s) => `/shows/${s.id}`),
+    ...showIds.map((s) => `/shows/${s.id}`),
     ...memberIds.map((id) => `/members/${id}`),
     ...news.map((n) => `/news/${n.id}`),
   ];
