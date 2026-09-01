@@ -2,7 +2,13 @@ import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { getDb } from '~/db/queries';
-import { members, showGalleryImages, shows, MEMBER_VISIBILITY } from '~/db/schema/content';
+import {
+  members,
+  showGalleryImages,
+  showPerformances,
+  shows,
+  MEMBER_VISIBILITY,
+} from '~/db/schema/content';
 import { pendingEdits, APP_ROLE } from '~/db/schema/governance';
 import { get, post, resetTables, signIn } from '~/test/session';
 
@@ -38,7 +44,14 @@ const profileForm = (over: Record<string, string | File> = {}) => {
 };
 
 beforeEach(async () => {
-  await resetTables(['show_cast', 'show_crew', 'show_gallery_images', 'shows', 'members']);
+  await resetTables([
+    'show_cast',
+    'show_crew',
+    'show_gallery_images',
+    'show_performances',
+    'shows',
+    'members',
+  ]);
 
   await db().insert(members).values({
     id: 'daniel-doser',
@@ -55,6 +68,16 @@ beforeEach(async () => {
     year: 2025,
     synopsis: 'A pig and a spider.',
   });
+  // Its real run, so the show is a closed production with a public page.
+  // Left dateless and unannounced it is a draft, and /shows/:slug 404s a
+  // draft for anyone without show:update - which is what a gallery test
+  // fetching the page anonymously would hit.
+  await db()
+    .insert(showPerformances)
+    .values([
+      { id: 'cw-p1', showId: 'charlottes-web', date: '2025-11-14', time: '7:00 PM' },
+      { id: 'cw-p2', showId: 'charlottes-web', date: '2025-11-15', time: '2:00 PM' },
+    ]);
 });
 
 const member = async () =>

@@ -21,8 +21,8 @@ import { get, post, resetTables, signIn } from '~/test/session';
  *
  * Coverage was concentrated on writes and on refusals, which left a set of
  * paths that only appear when something works: a redirect that lands on a
- * show, a section that only renders when there is content for it, a badge that
- * says "featured" rather than "run over", a plural.
+ * show, a section that only renders when there is content for it, a status
+ * badge, a plural.
  */
 
 const db = () => getDb(env.DB);
@@ -58,7 +58,7 @@ const seedRunningShow = async () => {
     year: 2026,
     synopsis: 'A demigod quest.',
     ticketUrl: 'https://tickets.example.com',
-    isCurrent: true,
+    isAnnounced: true,
   });
   await db().insert(showPerformances).values({
     id: 'p1',
@@ -77,10 +77,10 @@ describe('/shows/current', () => {
     expect(res.headers.get('location')).toBe('/shows/lightning-thief');
   });
 
-  it('falls back to the archive when nothing is featured', async () => {
+  it('falls back to the index when nothing is upcoming', async () => {
     const res = await get('/shows/current');
     expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toBe('/shows/past');
+    expect(res.headers.get('location')).toBe('/shows');
   });
 });
 
@@ -133,29 +133,35 @@ describe('sections that only appear when there is content', () => {
 });
 
 describe('the admin shows list', () => {
-  it('marks a featured show whose run is still ahead as simply featured', async () => {
+  // The badge is read out of its own <tr>: the status words also appear in
+  // the page chrome and in other rows, so a bare toContain proves nothing.
+  const row = (html: string, title: string) => {
+    const at = html.indexOf(title);
+    expect(at, `${title} is not in the list`).toBeGreaterThan(-1);
+    return html.slice(at, html.indexOf('</tr>', at));
+  };
+
+  it('marks an announced show whose run is still ahead as upcoming', async () => {
     await seedRunningShow();
     const cookie = await signIn('board@example.com', APP_ROLE.Admin);
 
     const html = await (await get('/admin/shows', cookie)).text();
-    expect(html).toContain('>featured<');
-    expect(html).not.toContain('run over');
+    expect(row(html, 'The Lightning Thief')).toContain('>Upcoming<');
   });
 
-  it('shows a dash for a production that is not featured', async () => {
+  it('marks an unannounced production that has not run as a draft', async () => {
     await db().insert(shows).values({
       id: 'old-show',
       title: 'Old Show',
       season: 'Fall 2024',
       year: 2024,
       synopsis: 'Done.',
-      isCurrent: false,
+      isAnnounced: false,
     });
     const cookie = await signIn('board@example.com', APP_ROLE.Admin);
 
     const html = await (await get('/admin/shows', cookie)).text();
-    expect(html).toContain('Old Show');
-    expect(html).toContain('—');
+    expect(row(html, 'Old Show')).toContain('>Draft<');
   });
 });
 
