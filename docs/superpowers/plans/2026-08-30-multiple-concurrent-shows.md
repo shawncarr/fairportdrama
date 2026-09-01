@@ -1623,11 +1623,23 @@ Expected: FAIL.
 
 - [ ] **Step 3: Build the sitemap from indexable shows**
 
-In `src/routes/system.tsx`, replace the `getPastShows` and `getCurrentShow` calls with a single `getIndexableShows(db)`, change `'/shows/past'` in `staticPaths` to `'/shows'`, and collapse the two show URL spreads into one:
+In `src/routes/system.tsx`, the `Promise.all` at `:21` destructures four values. It becomes three — `getPastShows` and `getCurrentShow` collapse into one call:
+
+```ts
+  const [showIds, memberIds, news] = await Promise.all([
+    getIndexableShows(db),
+    getIndexableMemberIds(db),
+    getPublishedNews(db),
+  ]);
+```
+
+Change `'/shows/past'` in `staticPaths` to `'/shows'`, and collapse the two show URL spreads into one:
 
 ```ts
     ...showIds.map((s) => `/shows/${s.id}`),
 ```
+
+Update the imports: drop `getPastShows` and `getCurrentShow`, add `getIndexableShows`. This is the file's last dependency on the deleted query, so it should typecheck cleanly afterwards.
 
 - [ ] **Step 4: Run the test**
 
@@ -1645,10 +1657,12 @@ git commit -m "feat(seo): keep drafts out of the sitemap"
 
 ## Task 11: Full verification
 
-- [ ] **Step 1: Typecheck**
+- [ ] **Step 1: Typecheck, and expect exactly two errors**
 
 Run: `npm run typecheck`
-Expected: clean. Any surviving `isCurrent` error on a `shows` row is a site the earlier tasks missed. Member-office `isCurrent` errors would mean the rename leaked past `shows`.
+Expected: **two** errors, both in `src/routes/happy-paths.workers-test.ts` — the `isCurrent` seeds at `:61` and `:152`. Step 2 fixes them; the step order here is deliberate, since that file is the last holder of the old column name.
+
+Anything else is a site the earlier tasks missed. Member-office `isCurrent` errors would mean the rename leaked past `shows` — that field is unrelated and must not be touched.
 
 - [ ] **Step 2: Update happy-paths, which breaks in four places**
 
