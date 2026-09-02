@@ -268,3 +268,71 @@ describe('concurrent shows', () => {
     expect(pastSection).not.toContain('upcoming-show');
   });
 });
+
+/**
+ * Every announced show reaches the hero one way or the other.
+ *
+ * `getPromotedShows` is announced-and-not-closed and
+ * `getLastClosedAnnouncedShow` is announced-and-closed, so their union is
+ * every announced show - there is no state where something is announced and
+ * the page still says nothing has been.
+ */
+describe('announced, with nothing explicitly featured', () => {
+  const NOT_ANNOUNCED = 'has not been announced yet';
+
+  const seedRaw = async (id: string, announced: boolean, dates: string[]) => {
+    await db().insert(shows).values({
+      id,
+      title: id,
+      season: 'Spring',
+      year: 2027,
+      synopsis: 'x',
+      isAnnounced: announced,
+    });
+    if (dates.length > 0) {
+      await db()
+        .insert(showPerformances)
+        .values(dates.map((date, i) => ({ id: `${id}-${i}`, showId: id, date, time: '7:30 PM' })));
+    }
+  };
+
+  it('heroes an announced show with no dates at all', async () => {
+    await seedRaw('dateless', true, []);
+
+    const html = await body('/');
+    expect(html).not.toContain(NOT_ANNOUNCED);
+    expect(html).toContain('Dates to be announced');
+  });
+
+  it('heroes an announced show whose run has closed', async () => {
+    await seedRaw('finished', true, [iso(-20)]);
+
+    const html = await body('/');
+    expect(html).not.toContain(NOT_ANNOUNCED);
+    expect(html).toContain('a wrap');
+  });
+
+  it('prefers a dated upcoming show over a dateless one', async () => {
+    await seedRaw('dateless', true, []);
+    await seedRaw('dated', true, [iso(10)]);
+
+    const html = await body('/');
+    expect(html.indexOf('href="/shows/dated"')).toBeLessThan(html.indexOf('Also this season'));
+  });
+
+  it('heroes the upcoming show even when a closed one is also announced', async () => {
+    await seedRaw('finished', true, [iso(-20)]);
+    await seedRaw('soon', true, [iso(10)]);
+
+    const html = await body('/');
+    expect(html).not.toContain('a wrap');
+    expect(html.indexOf('href="/shows/soon"')).toBeLessThan(html.indexOf('Past Productions'));
+  });
+
+  it('falls back only when genuinely nothing is announced', async () => {
+    await seedRaw('draft', false, [iso(10)]);
+    await seedRaw('cancelled', false, [iso(-10)]);
+
+    expect(await body('/')).toContain(NOT_ANNOUNCED);
+  });
+});
