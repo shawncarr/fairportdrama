@@ -1720,9 +1720,11 @@ npm run dev
 
 `seed:apply:local` is insert-only and fails with `UNIQUE constraint failed: members.id` against an already-populated database — pre-existing, not caused by this change. Only run it against a fresh database.
 
-Know what the seed actually holds before judging what you see: all four seeded shows have run. The Lightning Thief's performances are 2026-03-05 to -07 (`seed/content.sql:504-506`), and it is the only one with `is_announced` set. So the correct starting state is the wrap hero, not a countdown.
+Know what the seed actually holds before judging what you see. All four productions have run — The Lightning Thief's performances are 2026-03-05 to -07 (`seed/content.sql:504-506`) — and migration 0005 marks every show that has run as announced, so all four are announced now, not just that one.
 
-- `/` renders "That's a wrap" for The Lightning Thief, with no band and no countdown. A countdown here would mean the closed rule broke.
+Because the most recent of them closed well over eight weeks ago, the home page does **not** front a wrap hero. That is `WRAP_HERO_DAYS` working: a show that closed months back should not still be leading the site.
+
+- `/` renders "our next production has not been announced yet", with no band and no countdown. A wrap panel here would mean the staleness bound broke; a countdown would mean the closed rule broke.
 - `/shows` shows no Upcoming section at all — it is hidden when nothing is upcoming — and all four productions under Past Productions.
 - `/shows/past` redirects to `/shows`; the header has one "Shows" link and no dropdown.
 - In the admin, add a show, give it performance dates a few weeks out, and announce it. The home page should now hero it with a countdown.
