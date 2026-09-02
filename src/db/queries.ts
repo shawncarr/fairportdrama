@@ -46,14 +46,29 @@ const firstPerformanceDate = sql<string | null>`(
   SELECT MIN(p.date) FROM show_performances p WHERE p.show_id = ${sql.raw('"shows"."id"')}
 )`;
 
-/** Today in the club's timezone, as a bare ISO date for comparison. */
-const today = () =>
+/** A date in the club's timezone, bare ISO, for string comparison. */
+const isoInClubZone = (at: Date) =>
   new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/New_York',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(new Date());
+  }).format(at);
+
+/** Today in the club's timezone, as a bare ISO date for comparison. */
+const today = () => isoInClubZone(new Date());
+
+const daysAgo = (n: number) => isoInClubZone(new Date(Date.now() - n * 864e5));
+
+/**
+ * How long a closed show keeps the home page after its run.
+ *
+ * The wrap panel exists for the weeks after closing night - "thank you to
+ * everyone who came out" - not indefinitely. Eight weeks carries a November
+ * closing through to a January announcement without leaving a quiet summer
+ * fronted by a production that ended in spring.
+ */
+const WRAP_HERO_DAYS = 56;
 
 /** What every show list projects, so the four queries cannot drift apart. */
 const showColumns = {
@@ -128,12 +143,24 @@ export async function getPromotedShows(db: DB) {
  * Two shows can share a closing night - that is the point of the JV and
  * Varsity split - so the title breaks the tie. Without it the home page would
  * name whichever row the table happened to yield first.
+ *
+ * Bounded to WRAP_HERO_DAYS. Every show that has ever run is announced, so
+ * without a bound this always finds something and the home page fronts a
+ * closed production for as long as the club stays quiet - a wrap panel
+ * thanking people for a show that ended eighteen months ago. Past the bound
+ * the page says nothing is announced, which is true.
  */
 export async function getLastClosedAnnouncedShow(db: DB) {
   const [row] = await db
     .select(showColumns)
     .from(shows)
-    .where(and(eq(shows.isAnnounced, true), closed()))
+    .where(
+      and(
+        eq(shows.isAnnounced, true),
+        closed(),
+        sql`${lastPerformanceDate} >= ${daysAgo(WRAP_HERO_DAYS)}`,
+      ),
+    )
     .orderBy(sql`${lastPerformanceDate} DESC`, asc(shows.title))
     .limit(1);
 

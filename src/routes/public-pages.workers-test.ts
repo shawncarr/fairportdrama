@@ -36,7 +36,15 @@ import { get, resetTables, signIn } from '~/test/session';
 
 const db = () => getDb(env.DB);
 
-const YESTERDAY = '2020-01-02';
+// Genuinely yesterday, in the club's timezone. It was pinned to 2020-01-02,
+// which is a closed run but not a recent one - and the home page only fronts
+// a closed show for eight weeks after it ends.
+const YESTERDAY = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/New_York',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}).format(new Date(Date.now() - 864e5));
 const FAR_FUTURE = '2099-05-01';
 
 /** A bare ISO date `d` days from now, for shows seeded relative to today. */

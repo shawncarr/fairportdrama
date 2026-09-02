@@ -94,11 +94,13 @@ describe('which shows are listed', () => {
     // upcoming fixture rather than inheriting it.
     await db().delete(shows).where(eq(shows.id, 'this-season'));
 
+    // Inside the wrap-hero window: past it the page stops fronting a closed
+    // show at all, and there would be no hero to duplicate.
     await seedShow('lightning-thief', {
       year: 2026,
       announced: true,
       highlighted: true,
-      lastDate: iso(-150),
+      lastDate: iso(-30),
     });
     await seedShow('charlottes-web', { year: 2025, lastDate: iso(-400) });
 
@@ -280,6 +282,17 @@ describe('concurrent shows', () => {
 describe('announced, with nothing explicitly featured', () => {
   const NOT_ANNOUNCED = 'has not been announced yet';
 
+  // `iso()` derives from the UTC date while the query computes its cutoff in
+  // America/New_York, and the two differ by exactly the one day these edge
+  // cases turn on. Mirror the query's own arithmetic instead.
+  const etDaysAgo = (n: number) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(Date.now() - n * 864e5));
+
   const seedRaw = async (id: string, announced: boolean, dates: string[]) => {
     await db().insert(shows).values({
       id,
@@ -327,6 +340,29 @@ describe('announced, with nothing explicitly featured', () => {
     const html = await body('/');
     expect(html).not.toContain('a wrap');
     expect(html.indexOf('href="/shows/soon"')).toBeLessThan(html.indexOf('Past Productions'));
+  });
+
+  it('gives up the wrap hero once the run is well behind us', async () => {
+    await seedRaw('long-over', true, [iso(-100)]);
+
+    // The wrap panel is for the weeks after closing night. Every show that
+    // ever ran is announced, so without a bound this one fronts the page
+    // until the club announces something else - however long that takes.
+    const html = await body('/');
+    expect(html).toContain(NOT_ANNOUNCED);
+    expect(html).not.toContain('a wrap');
+  });
+
+  it('keeps it on the last day of the window', async () => {
+    await seedRaw('just-inside', true, [etDaysAgo(56)]);
+
+    expect(await body('/')).toContain('a wrap');
+  });
+
+  it('drops it the day after', async () => {
+    await seedRaw('just-outside', true, [etDaysAgo(57)]);
+
+    expect(await body('/')).toContain(NOT_ANNOUNCED);
   });
 
   it('falls back only when genuinely nothing is announced', async () => {
