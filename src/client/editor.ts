@@ -8,6 +8,16 @@ import {
   safeUrl,
   unsupportedToken,
 } from '~/lib/rich-text';
+import boldIcon from './icons/bold.svg';
+import heading2Icon from './icons/heading-2.svg';
+import heading3Icon from './icons/heading-3.svg';
+import italicIcon from './icons/italic.svg';
+import linkIcon from './icons/link.svg';
+import numbersIcon from './icons/list-ordered.svg';
+import bulletsIcon from './icons/list.svg';
+import redoIcon from './icons/redo-2.svg';
+import quoteIcon from './icons/text-quote.svg';
+import undoIcon from './icons/undo-2.svg';
 
 /**
  * The admin's rich text editor.
@@ -23,7 +33,10 @@ export interface MountedEditor {
 }
 
 interface Tool {
+  /** The button's accessible name and tooltip; the button shows only `icon`. */
   label: string;
+  /** A Lucide SVG file from ./icons, imported as markup. */
+  icon: string;
   /** `status` is the line under the editor, for anything the tool must say. */
   run: (editor: Editor, status: HTMLElement) => void;
   active?: (editor: Editor) => boolean;
@@ -57,16 +70,16 @@ function promptForLink(editor: Editor, status: HTMLElement) {
 }
 
 const TOOLS: Tool[] = [
-  { label: 'Bold', profiles: BOTH, run: (e) => e.chain().focus().toggleBold().run(), active: (e) => e.isActive('bold') },
-  { label: 'Italic', profiles: BOTH, run: (e) => e.chain().focus().toggleItalic().run(), active: (e) => e.isActive('italic') },
-  { label: 'Heading', profiles: FULL_ONLY, run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run(), active: (e) => e.isActive('heading', { level: 2 }) },
-  { label: 'Subheading', profiles: FULL_ONLY, run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run(), active: (e) => e.isActive('heading', { level: 3 }) },
-  { label: 'Bullets', profiles: BOTH, run: (e) => e.chain().focus().toggleBulletList().run(), active: (e) => e.isActive('bulletList') },
-  { label: 'Numbers', profiles: BOTH, run: (e) => e.chain().focus().toggleOrderedList().run(), active: (e) => e.isActive('orderedList') },
-  { label: 'Quote', profiles: FULL_ONLY, run: (e) => e.chain().focus().toggleBlockquote().run(), active: (e) => e.isActive('blockquote') },
-  { label: 'Link', profiles: BOTH, run: promptForLink, active: (e) => e.isActive('link') },
-  { label: 'Undo', profiles: BOTH, run: (e) => e.chain().focus().undo().run() },
-  { label: 'Redo', profiles: BOTH, run: (e) => e.chain().focus().redo().run() },
+  { label: 'Bold', icon: boldIcon, profiles: BOTH, run: (e) => e.chain().focus().toggleBold().run(), active: (e) => e.isActive('bold') },
+  { label: 'Italic', icon: italicIcon, profiles: BOTH, run: (e) => e.chain().focus().toggleItalic().run(), active: (e) => e.isActive('italic') },
+  { label: 'Heading', icon: heading2Icon, profiles: FULL_ONLY, run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run(), active: (e) => e.isActive('heading', { level: 2 }) },
+  { label: 'Subheading', icon: heading3Icon, profiles: FULL_ONLY, run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run(), active: (e) => e.isActive('heading', { level: 3 }) },
+  { label: 'Bullets', icon: bulletsIcon, profiles: BOTH, run: (e) => e.chain().focus().toggleBulletList().run(), active: (e) => e.isActive('bulletList') },
+  { label: 'Numbers', icon: numbersIcon, profiles: BOTH, run: (e) => e.chain().focus().toggleOrderedList().run(), active: (e) => e.isActive('orderedList') },
+  { label: 'Quote', icon: quoteIcon, profiles: FULL_ONLY, run: (e) => e.chain().focus().toggleBlockquote().run(), active: (e) => e.isActive('blockquote') },
+  { label: 'Link', icon: linkIcon, profiles: BOTH, run: promptForLink, active: (e) => e.isActive('link') },
+  { label: 'Undo', icon: undoIcon, profiles: BOTH, run: (e) => e.chain().focus().undo().run() },
+  { label: 'Redo', icon: redoIcon, profiles: BOTH, run: (e) => e.chain().focus().redo().run() },
 ];
 
 const profileOf = (textarea: HTMLTextAreaElement): RichTextProfile =>
@@ -138,9 +151,18 @@ export function mountRichText(textarea: HTMLTextAreaElement): MountedEditor | nu
   const tools = TOOLS.filter((t) => t.profiles.includes(profile)).map((tool) => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.textContent = tool.label;
+    button.setAttribute('aria-label', tool.label);
+    button.title = tool.label;
+    // The markup is a file shipped in ./icons, never author input. Only its
+    // <svg> is kept, not the license comment and whitespace around it.
+    const parsed = document.createElement('template');
+    parsed.innerHTML = tool.icon;
+    const svg = parsed.content.querySelector('svg')!;
+    svg.setAttribute('class', 'h-4 w-4');
+    svg.setAttribute('aria-hidden', 'true');
+    button.append(svg);
     button.className =
-      'px-2 py-1 text-sm rounded text-neutral-700 hover:bg-neutral-100 aria-pressed:bg-neutral-200 aria-pressed:text-neutral-900';
+      'p-1.5 rounded text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 aria-pressed:bg-neutral-200 aria-pressed:text-neutral-900';
     toolbar.append(button);
     return { tool, button };
   });

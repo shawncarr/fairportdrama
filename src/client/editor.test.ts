@@ -112,11 +112,11 @@ describe('falling back to the plain textarea', () => {
 
 const buttons = () =>
   [...document.querySelectorAll<HTMLButtonElement>('[data-rich-toolbar] button')].map(
-    (b) => b.textContent,
+    (b) => b.getAttribute('aria-label'),
   );
 const click = (label: string) =>
   [...document.querySelectorAll<HTMLButtonElement>('[data-rich-toolbar] button')]
-    .find((b) => b.textContent === label)!
+    .find((b) => b.getAttribute('aria-label') === label)!
     .click();
 
 describe('the toolbar', () => {
@@ -130,6 +130,19 @@ describe('the toolbar', () => {
   it('offers only what a bio may hold', () => {
     mountRichText(setup('data-rich="basic"', 'x'));
     expect(buttons()).toEqual(['Bold', 'Italic', 'Bullets', 'Numbers', 'Link', 'Undo', 'Redo']);
+  });
+
+  it('shows an icon on each button, with its name for screen readers and a tooltip', () => {
+    mountRichText(setup('data-rich="full"', 'x'));
+    for (const b of document.querySelectorAll('[data-rich-toolbar] button')) {
+      const label = b.getAttribute('aria-label');
+      expect(label).toBeTruthy();
+      expect(b.getAttribute('title')).toBe(label);
+      expect(b.textContent?.trim()).toBe('');
+      const svg = b.querySelector('svg')!;
+      expect(svg.getAttribute('aria-hidden')).toBe('true');
+      expect(svg.querySelector('path, line')).not.toBeNull();
+    }
   });
 
   it('never submits the form', () => {
@@ -147,7 +160,7 @@ describe('the toolbar', () => {
     click('Bold');
     expect(textarea.value).toBe('**Hello**');
     const bold = [...document.querySelectorAll('[data-rich-toolbar] button')].find(
-      (b) => b.textContent === 'Bold',
+      (b) => b.getAttribute('aria-label') === 'Bold',
     )!;
     expect(bold.getAttribute('aria-pressed')).toBe('true');
   });

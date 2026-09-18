@@ -6,7 +6,7 @@
     "dev": "npm run build:css && npm run build:editor && wrangler dev",
     "build:css": "tailwindcss -i ./src/styles/global.css -o ./public/static/global.css --minify",
     "build:css:watch": "tailwindcss -i ./src/styles/global.css -o ./public/static/global.css --watch",
-    "build:editor": "esbuild src/client/editor.ts --bundle --minify --format=esm --target=es2022 --outfile=public/static/editor.js",
+    "build:editor": "esbuild src/client/editor.ts --bundle --minify --format=esm --target=es2022 --loader:.svg=text --outfile=public/static/editor.js",
     "build:editor:watch": "npm run build:editor -- --watch",
     "deploy": "npm run build:css && npm run build:editor && wrangler deploy --env production",
     "typecheck": "wrangler types && tsc --noEmit && tsc --noEmit -p src/client",
