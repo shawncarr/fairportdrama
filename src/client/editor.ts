@@ -114,8 +114,12 @@ export function mountRichText(textarea: HTMLTextAreaElement): MountedEditor | nu
   frame.append(host);
   textarea.after(frame);
 
+  const required = textarea.required;
+  const limit = textarea.maxLength > 0 ? textarea.maxLength : null;
+
   // A hidden required control blocks submit with a message nobody can see,
-  // so the requirement is dropped here rather than enforced invisibly.
+  // so the requirement is dropped here; the submit check below takes over
+  // enforcing it.
   textarea.hidden = true;
   textarea.required = false;
 
@@ -166,6 +170,35 @@ export function mountRichText(textarea: HTMLTextAreaElement): MountedEditor | nu
   };
   editor.on('transaction', refresh);
   refresh();
+
+  const count = () => {
+    if (limit === null) {
+      // Nothing to count, but a message from a stopped submit is now stale.
+      status.textContent = '';
+      status.classList.remove('text-red-600');
+      return;
+    }
+    const length = textarea.value.length;
+    status.textContent = `${length.toLocaleString('en-US')} / ${limit.toLocaleString('en-US')}`;
+    status.classList.toggle('text-red-600', length > limit);
+  };
+  editor.on('update', count);
+  count();
+
+  textarea.form?.addEventListener('submit', (event) => {
+    const value = textarea.value;
+    let problem: string | null = null;
+    if (required && value.trim() === '') problem = "This can't be empty.";
+    else if (limit !== null && value.length > limit) {
+      const over = value.length - limit;
+      problem = `This is ${over.toLocaleString('en-US')} character${over === 1 ? '' : 's'} over the limit.`;
+    }
+    if (problem === null) return;
+    event.preventDefault();
+    status.textContent = problem;
+    status.classList.add('text-red-600');
+    editor.commands.focus();
+  });
 
   return { editor, textarea };
 }

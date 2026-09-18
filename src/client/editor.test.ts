@@ -190,3 +190,53 @@ describe('the toolbar', () => {
     expect(document.body.textContent).toContain('Links must start with');
   });
 });
+
+const submit = (form: HTMLFormElement) => {
+  const event = new Event('submit', { cancelable: true });
+  form.dispatchEvent(event);
+  return event.defaultPrevented;
+};
+
+describe('the counter', () => {
+  it('counts markdown, not visible text', () => {
+    const textarea = setup('data-rich="basic" maxlength="2000"', '[a](https://example.com)');
+    mountRichText(textarea);
+    expect(document.body.textContent).toContain('24 / 2,000');
+  });
+
+  it('is absent on fields without a limit', () => {
+    mountRichText(setup('data-rich="full"', 'x'));
+    expect(document.body.textContent).not.toContain('/ ');
+  });
+});
+
+describe('submitting', () => {
+  it('stops an empty required field and says so', () => {
+    const textarea = setup('data-rich="full" required', '');
+    mountRichText(textarea);
+    expect(submit(textarea.form!)).toBe(true);
+    expect(document.body.textContent).toContain("This can't be empty.");
+  });
+
+  it('stops a field over its limit', () => {
+    const textarea = setup('data-rich="basic" maxlength="5"', 'abcdef');
+    mountRichText(textarea);
+    expect(submit(textarea.form!)).toBe(true);
+    expect(document.body.textContent).toContain('1 character over the limit');
+  });
+
+  it('clears the empty-field message once someone types', () => {
+    const textarea = setup('data-rich="full" required', '');
+    const { editor } = mountRichText(textarea)!;
+    submit(textarea.form!);
+
+    editor.commands.insertContent('Now it has words.');
+    expect(document.body.textContent).not.toContain("This can't be empty.");
+  });
+
+  it('lets a valid field through', () => {
+    const textarea = setup('data-rich="full" required maxlength="2000"', 'Fine.');
+    mountRichText(textarea);
+    expect(submit(textarea.form!)).toBe(false);
+  });
+});
