@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { renderMarkdown } from './markdown';
+import { markdownToPlainText, renderMarkdown } from './markdown';
+import { RICH_TEXT_PROFILE } from './rich-text';
 
 describe('ordinary formatting', () => {
   it('renders paragraphs', () => {
@@ -142,5 +143,68 @@ describe('edge cases', () => {
 
   it('handles apostrophes in show titles', () => {
     expect(renderMarkdown("Charlotte's Web")).toContain('Charlotte');
+  });
+});
+
+describe('the basic profile, used for bios', () => {
+  const basic = (source: string) =>
+    renderMarkdown(source, { profile: RICH_TEXT_PROFILE.Basic });
+
+  it('keeps emphasis, links, lists, and line breaks', () => {
+    const html = basic('**bold** *it* [x](https://x.example)\nnext\n\n- one');
+    expect(html).toContain('<strong>bold</strong>');
+    expect(html).toContain('<em>it</em>');
+    expect(html).toContain('href="https://x.example/"');
+    expect(html).toContain('<br>');
+    expect(html).toContain('<li>one</li>');
+  });
+
+  it.each([
+    ['# Big news', '# Big news', '<h1'],
+    ['Title\n---', 'Title<br>---', '<h2'],
+    ['> quoted', '&gt; quoted', '<blockquote'],
+    ['```\n<x>\n```', '```<br>&lt;x&gt;<br>```', '<pre'],
+    ['| a |\n|---|\n| 1 |', '| a |', '<table'],
+    ['---', '<p>---</p>', '<hr'],
+    ['![a](https://x.example/i.png)', '![a](https://x.example/i.png)', '<img'],
+    ['`c`', '`c`', '<code'],
+    ['~~d~~', '~~d~~', '<del'],
+  ])('shows %j as the text that was typed', (source, visible, forbidden) => {
+    const html = basic(source);
+    expect(html).toContain(visible);
+    expect(html).not.toContain(forbidden);
+  });
+
+  it('still neutralises raw HTML', () => {
+    expect(basic('<script>alert(1)</script>')).not.toContain('<script>');
+  });
+
+  it('shows a task list checkbox as text, not an input', () => {
+    const html = basic('- [ ] learn lines\n- [x] audition');
+    expect(html).not.toContain('<input');
+    expect(html).toContain('[ ] learn lines');
+    expect(html).toContain('[x] audition');
+  });
+
+  it('keeps an escaped block in its own paragraph', () => {
+    expect(basic('# Hi\n\nAfter')).toMatch(/<p># Hi<\/p>\s*<p>After<\/p>/);
+  });
+});
+
+describe('the full profile is the default', () => {
+  it('renders headings without being asked', () => {
+    expect(renderMarkdown('## Auditions')).toContain('<h2>Auditions</h2>');
+  });
+});
+
+describe('markdownToPlainText', () => {
+  it.each([
+    ['A **demigod** quest [across](https://x.example) *America*.', 'A demigod quest across America.'],
+    ['## Head\n\nBody\n- a\n- b', 'Head Body a b'],
+    ['**b**old 5 \\* 3 my\\_var', 'bold 5 * 3 my_var'],
+    ['<b>x</b> & y', 'x & y'],
+    ['line\nline2', 'line line2'],
+  ])('turns %j into %j', (source, plain) => {
+    expect(markdownToPlainText(source)).toBe(plain);
   });
 });
