@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@plugin '@tailwindcss/typography';
 
 /* Class detection sources. The CSS lives in src/styles, so Tailwind's
  * automatic detection would only scan that directory. */
