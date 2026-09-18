@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono';
+import { raw } from 'hono/html';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { AppEnv } from '~/env';
 import {
@@ -43,7 +44,8 @@ import {
   submitSelfEdit,
 } from '~/services/member-profile';
 import { displayName } from '~/lib/member-display';
-import { RICH_TEXT_MAX_LENGTH } from '~/lib/rich-text';
+import { renderMarkdown } from '~/lib/markdown';
+import { RICH_TEXT_MAX_LENGTH, RICH_TEXT_PROFILE } from '~/lib/rich-text';
 import { IMAGE_VARIANT, MAX_IMAGE_BYTES, uploadImage, type ImageStore } from '~/lib/images';
 import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import { writeWithAudit } from '~/lib/audit/write';
@@ -583,6 +585,22 @@ function ProposedValue({
       <img src={url} alt="" class="w-28 h-28 rounded-lg object-cover ring-1 ring-neutral-200" />
     ) : (
       <p class="text-neutral-500">(no photo)</p>
+    );
+  }
+
+  // A rendered link hides where it goes, and the approver is accepting
+  // responsibility for it, so the source stays one click away.
+  if (field === 'bio' && typeof value === 'string' && value.length > 0) {
+    return (
+      <div>
+        <div class="prose prose-neutral prose-sm max-w-none">
+          {raw(renderMarkdown(value, { profile: RICH_TEXT_PROFILE.Basic }))}
+        </div>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-xs text-neutral-500">Show source</summary>
+          <pre class="mt-1 text-xs whitespace-pre-wrap text-neutral-700">{value}</pre>
+        </details>
+      </div>
     );
   }
 

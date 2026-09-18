@@ -2,7 +2,8 @@ import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { getDb } from '~/db/queries';
 import { members, MEMBER_VISIBILITY, showPerformances, shows } from '~/db/schema/content';
-import { APP_ROLE, pendingEdits } from '~/db/schema/governance';
+import { APP_ROLE, PENDING_EDIT_STATUS, pendingEdits } from '~/db/schema/governance';
+import { AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import { RICH_TEXT_MAX_LENGTH } from '~/lib/rich-text';
 import { get, post, resetTables, signIn } from '~/test/session';
 
@@ -157,5 +158,35 @@ describe('the length limit', () => {
     expect(res.headers.get('location')).toContain('error=');
     const [row] = await db().select().from(shows);
     expect(row!.synopsis).toBe('Fairy tales collide.');
+  });
+});
+
+describe('the approvals queue', () => {
+  it('renders a proposed bio, and keeps its source one click away', async () => {
+    await db().insert(members).values({
+      id: 'daniel-doser',
+      name: 'Daniel Doser',
+      grade: 'Senior',
+      bio: 'Old bio.',
+      visibility: MEMBER_VISIBILITY.Full,
+    });
+    await db().insert(pendingEdits).values({
+      id: 'pe-1',
+      targetKind: AUDIT_ENTITY_KIND.Member,
+      targetId: 'daniel-doser',
+      proposed: { bio: 'A **new** bio with [a link](https://evil.example).' },
+      submittedByUserId: 'u_someone',
+      submittedAt: '2026-09-18T00:00:00.000Z',
+      status: PENDING_EDIT_STATUS.Pending,
+    });
+
+    const cookie = await signIn('board@example.com', APP_ROLE.Admin);
+    const res = await get('/admin/approvals', cookie);
+    const html = await res.text();
+
+    expect(html).toContain('<strong>new</strong>');
+    expect(html).toContain('Show source');
+    // The link's destination must be visible without hovering it.
+    expect(html).toContain('[a link](https://evil.example)');
   });
 });
