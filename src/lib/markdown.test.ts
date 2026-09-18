@@ -103,6 +103,28 @@ describe('link URLs are filtered by scheme', () => {
     expect(renderMarkdown('[x](  JaVaScRiPt:alert(1))')).not.toMatch(/javascript:/i);
   });
 
+  // marked 18 hands the link hook its text unparsed, so text written between
+  // the brackets never passed through the html hook.
+  it('neutralises raw HTML inside the link text', () => {
+    const html = renderMarkdown('[<img src=x onerror=alert(1)>](https://example.com)');
+    expect(html).not.toMatch(/<img[^>]*onerror/i);
+    expect(html).toContain('&lt;img');
+  });
+
+  it('neutralises raw HTML inside the text of a refused link', () => {
+    const html = renderMarkdown('[<img src=x onerror=alert(1)>](javascript:x)');
+    expect(html).not.toMatch(/<img[^>]*onerror/i);
+  });
+
+  it('neutralises raw HTML inside a reference link', () => {
+    const html = renderMarkdown('[<b onclick="x()">hi</b>][r]\n\n[r]: https://example.com');
+    expect(html).not.toMatch(/<b[^>]*onclick/i);
+  });
+
+  it('renders formatting inside link text', () => {
+    expect(renderMarkdown('[**bold**](https://example.com)')).toContain('<strong>bold</strong>');
+  });
+
   it('opens external links without handing over a window reference', () => {
     const html = renderMarkdown('[x](https://example.com)');
     expect(html).toContain('rel="noopener noreferrer"');
@@ -177,6 +199,16 @@ describe('the basic profile, used for bios', () => {
 
   it('still neutralises raw HTML', () => {
     expect(basic('<script>alert(1)</script>')).not.toContain('<script>');
+  });
+
+  it('neutralises raw HTML inside link text', () => {
+    expect(basic('[<img src=x onerror=alert(1)>](https://x.example)')).not.toMatch(/<img[^>]*onerror/i);
+  });
+
+  it('shows an image inside a link as the text that was typed', () => {
+    const html = basic('[![a](https://x.example/i.png)](https://x.example)');
+    expect(html).not.toContain('<img');
+    expect(html).toContain('![a](https://x.example/i.png)');
   });
 
   it('shows a task list checkbox as text, not an input', () => {

@@ -35,7 +35,11 @@ const safe: RendererObject = {
     return escapeHtml(text);
   },
 
-  link({ href, title, text }) {
+  link({ href, title, tokens }) {
+    // Rendered from the parsed tokens, not the `text` field: marked 18 fills
+    // `text` with the unparsed source between the brackets, which would put
+    // author-written HTML on the page without reaching the html hook.
+    const text = this.parser.parseInline(tokens);
     const url = safeUrl(href);
     if (!url) return text;
     const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
