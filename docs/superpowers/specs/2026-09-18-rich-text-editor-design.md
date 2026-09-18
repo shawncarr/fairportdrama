@@ -86,6 +86,7 @@ The server does not check length today. Bio and synopsis rely on `maxlength={200
 
 - block level: heading (ATX and setext), blockquote, code block, table, hr
 - inline: image, codespan, del
+- a GFM task list checkbox, shown as `[ ]` or `[x]` rather than an input
 
 This is the enforcement for bios, because a student can post the form without the editor.
 
@@ -121,7 +122,7 @@ Add `@tailwindcss/typography` as a dev dependency and `@plugin "@tailwindcss/typ
   - A `basic` editor drops a pasted heading.
   - A `full` source containing a table, and a `basic` source containing `# Hi` or `> quote`, do not mount the editor.
   - Over 2,000 characters of markdown blocks submit with the inline message.
-  - **Plain text survives:** a multi-line plain bio, each existing seed synopsis, and prose with literal `*`, `_` and `#` pass through load, one edit and an undo, then `getMarkdown()`, and come back unchanged. Formatted markdown is only required to render the same, not to be byte-identical.
+  - **Plain text survives:** a multi-line plain bio and a multi-paragraph synopsis pass through load, one edit and an undo, then `getMarkdown()`, and come back byte-identical. The seed data is generated and gitignored, so the test uses a synopsis shaped like it. Prose with literal `*`, `_` and `#` comes back with `*` and `_` escaped, so that case, and formatted markdown in general, is only required to render the same.
 - Manual: `npm run dev`, edit a news post, a show and a bio in the browser, submit, and check the public page.
 
 ## Risks
