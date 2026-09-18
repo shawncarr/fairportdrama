@@ -190,3 +190,33 @@ describe('the approvals queue', () => {
     expect(html).toContain('[a link](https://evil.example)');
   });
 });
+
+describe('loading the editor', () => {
+  it('happens on pages with a rich field, and marks the field', async () => {
+    const cookie = await signIn('director@example.com', APP_ROLE.Staff);
+    const html = await (await get('/admin/shows/new', cookie)).text();
+
+    expect(html).toContain('src="/static/editor.js"');
+    expect(html).toMatch(/<textarea[^>]*name="synopsis"[^>]*data-rich="full"/);
+  });
+
+  it('marks bios as basic', async () => {
+    await db().insert(members).values({
+      id: 'daniel-doser', name: 'Daniel Doser', grade: 'Senior', visibility: MEMBER_VISIBILITY.Limited,
+    });
+    const cookie = await signIn('student@example.com', APP_ROLE.Member, 'daniel-doser');
+    const html = await (await get('/admin/profile', cookie)).text();
+
+    expect(html).toMatch(/<textarea[^>]*name="bio"[^>]*data-rich="basic"/);
+  });
+
+  it('does not happen elsewhere in the admin', async () => {
+    const cookie = await signIn('board@example.com', APP_ROLE.Admin);
+    const html = await (await get('/admin/accounts', cookie)).text();
+    expect(html).not.toContain('editor.js');
+  });
+
+  it('never happens on the public site', async () => {
+    expect(await body('/')).not.toContain('editor.js');
+  });
+});
