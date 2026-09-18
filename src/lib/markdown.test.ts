@@ -124,6 +124,19 @@ describe('link URLs are filtered by scheme', () => {
     expect(renderMarkdown('[**bold**](https://example.com)')).toContain('<strong>bold</strong>');
   });
 
+  // Browsers read these as another host, so they must not pass as relative
+  // links, which get no rel attribute.
+  it.each(['//evil.example', '/\\evil.example', '/\t/evil.example'])(
+    'refuses the host-relative link %j',
+    (href) => {
+      expect(renderMarkdown(`[x](<${href}>)`)).not.toContain('<a');
+    },
+  );
+
+  it('still allows a root-relative path', () => {
+    expect(renderMarkdown('[x](/shows)')).toContain('href="/shows"');
+  });
+
   it('opens external links without handing over a window reference', () => {
     const html = renderMarkdown('[x](https://example.com)');
     expect(html).toContain('rel="noopener noreferrer"');

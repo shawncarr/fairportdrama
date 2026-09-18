@@ -23,8 +23,13 @@ const SAFE_SCHEMES = ['http:', 'https:', 'mailto:'];
 function safeUrl(href: string): string | null {
   const trimmed = href.trim();
 
-  // Relative and anchor links are fine and common in post bodies.
-  if (trimmed.startsWith('/') || trimmed.startsWith('#')) return trimmed;
+  // Browsers drop tabs and newlines inside a URL, so `/\t/host` would become
+  // `//host` after this check had passed it.
+  if (/[\t\n\r]/.test(trimmed)) return null;
+
+  // Relative and anchor links are fine and common in post bodies. `//host`
+  // and `/\host` are not relative: browsers read both as another site.
+  if (/^\/(?![/\\])/.test(trimmed) || trimmed.startsWith('#')) return trimmed;
 
   try {
     const url = new URL(trimmed);
