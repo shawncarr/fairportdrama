@@ -93,6 +93,24 @@ export function renderMarkdown(
 
 const BLOCKS = new Set(['paragraph', 'heading', 'blockquote', 'list_item']);
 
+const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+
+/**
+ * The editor saves `&` and `<` as entities, and the caller escapes this text
+ * again on output, so left encoded they would publish as a literal `&amp;`.
+ * Other named entities are left alone; the editor falls back to plain text
+ * rather than load a source containing them.
+ */
+const decodeEntities = (text: string) =>
+  text.replace(/&(?:#(\d+)|#x([0-9a-f]+)|([a-z]+));/gi, (match, dec, hex, name) => {
+    if (dec || hex) {
+      const code = dec ? Number(dec) : Number.parseInt(hex, 16);
+      // A reference past the last code point would throw and take the page down.
+      return code <= 0x10ffff ? String.fromCodePoint(code) : match;
+    }
+    return NAMED_ENTITIES[name.toLowerCase()] ?? match;
+  });
+
 function plain(tokens: Token[]): string {
   return tokens
     .map((token) => {
@@ -109,7 +127,7 @@ function plain(tokens: Token[]): string {
       }
       if (token.type === 'code') return `${(token as Tokens.Code).text} `;
       if (token.type === 'br' || token.type === 'space' || token.type === 'hr') return ' ';
-      return 'text' in token ? String(token.text) : '';
+      return 'text' in token ? decodeEntities(String(token.text)) : '';
     })
     .join('');
 }

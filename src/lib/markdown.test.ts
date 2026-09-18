@@ -236,7 +236,13 @@ describe('markdownToPlainText', () => {
     ['**b**old 5 \\* 3 my\\_var', 'bold 5 * 3 my_var'],
     ['<b>x</b> & y', 'x & y'],
     ['line\nline2', 'line line2'],
+    // The editor saves & and < as entities; plain text is escaped again on output.
+    ['Rock &amp; Roll &lt;3 &quot;live&quot; it&#39;s &#x41;', 'Rock & Roll <3 "live" it\'s A'],
   ])('turns %j into %j', (source, plain) => {
     expect(markdownToPlainText(source)).toBe(plain);
+  });
+
+  it('leaves an out-of-range character reference as written rather than throwing', () => {
+    expect(markdownToPlainText('big &#99999999; &#x110000;')).toBe('big &#99999999; &#x110000;');
   });
 });
