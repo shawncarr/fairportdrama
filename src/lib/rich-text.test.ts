@@ -64,6 +64,12 @@ describe('safeUrl', () => {
     expect(safeUrl('#cast')).toBe('#cast');
   });
 
+  it('refuses links a browser would send to another host', () => {
+    expect(safeUrl('//evil.example')).toBeNull();
+    expect(safeUrl('/\\evil.example')).toBeNull();
+    expect(safeUrl('/\t/evil.example')).toBeNull();
+  });
+
   it('refuses javascript and junk', () => {
     expect(safeUrl('javascript:alert(1)')).toBeNull();
     expect(safeUrl('not a url')).toBeNull();
