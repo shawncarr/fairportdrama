@@ -3,10 +3,12 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "dev": "npm run build:css && wrangler dev",
+    "dev": "npm run build:css && npm run build:editor && wrangler dev",
     "build:css": "tailwindcss -i ./src/styles/global.css -o ./public/static/global.css --minify",
     "build:css:watch": "tailwindcss -i ./src/styles/global.css -o ./public/static/global.css --watch",
-    "deploy": "npm run build:css && wrangler deploy --env production",
+    "build:editor": "esbuild src/client/editor.ts --bundle --minify --format=esm --target=es2022 --outfile=public/static/editor.js",
+    "build:editor:watch": "npm run build:editor -- --watch",
+    "deploy": "npm run build:css && npm run build:editor && wrangler deploy --env production",
     "typecheck": "wrangler types && tsc --noEmit",
     "cf-typegen": "wrangler types",
     "db:generate": "drizzle-kit generate",
@@ -30,6 +32,11 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/extension-image": "^3.31.3",
+    "@tiptap/markdown": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
     "better-auth": "^1.6.25",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.32",
@@ -46,6 +53,7 @@
     "@vitest/coverage-istanbul": "^4.1.10",
     "@vitest/coverage-v8": "^4.1.10",
     "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.2",
     "happy-dom": "^20.11.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
@@ -56,6 +64,7 @@
     "esbuild@0.18.20": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.1": true,
+    "esbuild@0.28.2": true,
     "workerd@1.20260730.1": true
   },
   "private": true
