@@ -990,7 +990,7 @@ describe('mounting', () => {
   });
 
   it('renders literal markdown characters the same after an edit', () => {
-    // They come back escaped (`5 \\* 3`), which marked renders identically.
+    // They come back escaped (`5 \* 3`), which marked renders identically.
     const source = 'Tickets are 5 * 3 dollars, my_var stays, and #1 is fine.';
     const textarea = setup('data-rich="basic"', source);
     const { editor } = mountRichText(textarea)!;
