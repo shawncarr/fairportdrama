@@ -427,7 +427,7 @@ adminRoutes.get(
               name="bio"
               data-rich="basic"
               rows={6}
-              maxlength={2000}
+              maxlength={RICH_TEXT_MAX_LENGTH}
               class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none"
             >
               {member.bio ?? ''}
@@ -1678,7 +1678,7 @@ adminRoutes.get('/admin/members/:id', requirePermission('member', 'update'), asy
             <label for="e-bio" class="block text-sm font-medium text-neutral-700 mb-1">
               Bio
             </label>
-            <textarea id="e-bio" name="bio" data-rich="basic" rows={5} maxlength={2000} class={field}>
+            <textarea id="e-bio" name="bio" data-rich="basic" rows={5} maxlength={RICH_TEXT_MAX_LENGTH} class={field}>
               {member.bio ?? ''}
             </textarea>
           </div>
@@ -3417,7 +3417,7 @@ function ShowFields({ values }: { values: ShowFormValues }) {
             data-rich="full"
             required
             rows={5}
-            maxlength={2000}
+            maxlength={RICH_TEXT_MAX_LENGTH}
             class={field}
           >
             {values.synopsis}
