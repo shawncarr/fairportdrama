@@ -22,5 +22,5 @@
   // typechecked by the tools that execute it. Including it here would require
   // pulling Node/DOM libs into a Workers-scoped project.
   "include": ["src/**/*", "scripts/**/*", "worker-configuration.d.ts"],
-  "exclude": ["node_modules", "dist", "*.config.ts"]
+  "exclude": ["node_modules", "dist", "*.config.ts", "src/client"]
 }

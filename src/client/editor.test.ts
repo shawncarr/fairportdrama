@@ -1,4 +1,3 @@
-/// <reference lib="dom" />
 /**
  * @vitest-environment happy-dom
  */

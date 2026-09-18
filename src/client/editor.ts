@@ -1,4 +1,3 @@
-/// <reference lib="dom" />
 import { Editor, type Extensions } from '@tiptap/core';
 import Image from '@tiptap/extension-image';
 import { Markdown } from '@tiptap/markdown';
@@ -57,9 +56,7 @@ export function mountRichText(textarea: HTMLTextAreaElement): MountedEditor | nu
     const note = document.createElement('p');
     note.className = 'text-xs text-neutral-500 mt-1';
     note.textContent = "This text has formatting the editor can't show, so it opens as plain text.";
-    // `after` collides with the HTMLRewriter `Element` type this project also
-    // has in global scope; `insertAdjacentElement` is DOM-only, so it does not.
-    textarea.insertAdjacentElement('afterend', note);
+    textarea.after(note);
     return null;
   }
 
@@ -67,8 +64,8 @@ export function mountRichText(textarea: HTMLTextAreaElement): MountedEditor | nu
   frame.className =
     'rounded-lg border border-neutral-300 bg-white focus-within:border-primary-500 focus-within:ring-2 focus-within:ring-primary-500';
   const host = document.createElement('div');
-  frame.appendChild(host);
-  textarea.insertAdjacentElement('afterend', frame);
+  frame.append(host);
+  textarea.after(frame);
 
   // A hidden required control blocks submit with a message nobody can see,
   // so the requirement is dropped here rather than enforced invisibly.

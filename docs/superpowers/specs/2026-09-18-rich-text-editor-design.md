@@ -41,7 +41,7 @@ Tiptap v3 with the first-party markdown extension. New dependencies: `@tiptap/co
 
 Source lives in `src/client/editor.ts`. `build:editor` bundles it to `public/static/editor.js` as a minified ES module, and `build:editor:watch` mirrors `build:css:watch`. `dev` and `deploy` run `build:editor` alongside `build:css`, and `public/static/editor.js` joins `public/static/global.css` in `.gitignore`.
 
-`src/client/editor.ts` opens with `/// <reference lib="dom" />`, as the component tests already do (`src/components/AccountsFilter.test.ts:1`), so the root `tsconfig.json` and `typecheck` stay as they are. Its tests opt into happy-dom with the `@vitest-environment happy-dom` docblock.
+`src/client/` has its own `tsconfig.json` that extends the root one, swaps the Workers types for the `DOM` lib, and is excluded from the root project. A `/// <reference lib="dom" />` is not enough: the Workers types declare HTMLRewriter's `Element`, which merges with the DOM's and breaks calls like `el.after()`. `typecheck` runs `tsc` over both projects. The editor tests opt into happy-dom with the `@vitest-environment happy-dom` docblock.
 
 ### 2. Loading
 

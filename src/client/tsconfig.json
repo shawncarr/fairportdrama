@@ -1,0 +1,13 @@
+{
+  // Browser code, bundled by esbuild for admin pages. The root config is
+  // Workers-scoped, and its HTMLRewriter \`Element\` merges with the DOM's, which
+  // breaks ordinary calls like \`el.after()\`. This project swaps the Worker
+  // types for the DOM.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": ["./**/*"],
+  "exclude": []
+}
