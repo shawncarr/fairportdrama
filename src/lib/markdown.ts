@@ -1,5 +1,6 @@
 import { Marked } from 'marked';
 import { escapeHtml } from '~/lib/html';
+import { safeUrl } from '~/lib/rich-text';
 
 /**
  * Renders news post bodies.
@@ -17,22 +18,6 @@ import { escapeHtml } from '~/lib/html';
  * too blunt: it also escaped markdown's own syntax, so `> quoted` stopped
  * producing a blockquote and quotes came out double-escaped.
  */
-
-const SAFE_SCHEMES = ['http:', 'https:', 'mailto:'];
-
-function safeUrl(href: string): string | null {
-  const trimmed = href.trim();
-
-  // Relative and anchor links are fine and common in post bodies.
-  if (trimmed.startsWith('/') || trimmed.startsWith('#')) return trimmed;
-
-  try {
-    const url = new URL(trimmed);
-    return SAFE_SCHEMES.includes(url.protocol) ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
 
 const marked = new Marked({
   gfm: true,
