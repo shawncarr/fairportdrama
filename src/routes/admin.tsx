@@ -43,6 +43,7 @@ import {
   submitSelfEdit,
 } from '~/services/member-profile';
 import { displayName } from '~/lib/member-display';
+import { RICH_TEXT_MAX_LENGTH } from '~/lib/rich-text';
 import { IMAGE_VARIANT, MAX_IMAGE_BYTES, uploadImage, type ImageStore } from '~/lib/images';
 import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import { writeWithAudit } from '~/lib/audit/write';
@@ -99,6 +100,9 @@ import {
 } from '~/services/news';
 
 export const adminRoutes = new Hono<AppEnv>();
+
+const TOO_LONG = (what: string) =>
+  `Keep the ${what} under ${RICH_TEXT_MAX_LENGTH.toLocaleString('en-US')} characters.`;
 
 adminRoutes.use('/admin/*', noStore);
 adminRoutes.use('/admin/*', adminLayout);
@@ -519,6 +523,10 @@ adminRoutes.post(
     const visibility = String(form.get('visibility') ?? '');
     const bio = String(form.get('bio') ?? '').trim();
     const instagram = String(form.get('instagram') ?? '').trim();
+
+    if (bio.length > RICH_TEXT_MAX_LENGTH) {
+      return c.redirect(`/admin/profile?error=${encodeURIComponent(TOO_LONG('bio'))}`, 302);
+    }
 
     // Removal wins over a simultaneous upload: if someone ticks "remove" and
     // also picks a file, the safer reading of the intent is that the photo
@@ -1920,6 +1928,9 @@ adminRoutes.post('/admin/members/:id', requirePermission('member', 'update'), as
     );
   }
 
+  const bio = String(form.get('bio') ?? '').trim();
+  if (bio.length > RICH_TEXT_MAX_LENGTH) return back(`?error=${encodeURIComponent(TOO_LONG('bio'))}`);
+
   let photoImageId: string | null | undefined;
   if (form.get('removePhoto')) {
     photoImageId = null;
@@ -1932,7 +1943,6 @@ adminRoutes.post('/admin/members/:id', requirePermission('member', 'update'), as
   const name = String(form.get('name') ?? '').trim().replace(/\s+/g, ' ');
   const grade = String(form.get('grade') ?? '');
   const year = Number.parseInt(String(form.get('graduationYear') ?? ''), 10);
-  const bio = String(form.get('bio') ?? '').trim();
   const instagram = String(form.get('instagram') ?? '').trim();
 
   await updateMember(db, c.get('actor'), id, {
@@ -3479,6 +3489,11 @@ adminRoutes.get('/admin/shows/new', requirePermission('show', 'create'), (c) =>
 
 adminRoutes.post('/admin/shows/new', requirePermission('show', 'create'), async (c) => {
   const { values } = await readShowForm(c);
+
+  if (values.synopsis.length > RICH_TEXT_MAX_LENGTH) {
+    return c.redirect(`/admin/shows/new?error=${encodeURIComponent(TOO_LONG('synopsis'))}`, 302);
+  }
+
   const year = Number.parseInt(values.year, 10);
 
   if (!Number.isFinite(year) || year < 1900 || year > 2200) {
@@ -4049,6 +4064,14 @@ adminRoutes.post(
   async (c) => {
     const showId = c.req.param('id');
     const { values } = await readShowForm(c);
+
+    if (values.synopsis.length > RICH_TEXT_MAX_LENGTH) {
+      return c.redirect(
+        `/admin/shows/${showId}?error=${encodeURIComponent(TOO_LONG('synopsis'))}`,
+        302,
+      );
+    }
+
     const year = Number.parseInt(values.year, 10);
 
     await updateShow(getDb(c.env.DB), c.get('actor'), showId, {
