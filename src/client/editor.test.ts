@@ -162,6 +162,23 @@ describe('the toolbar', () => {
     expect(textarea.value).toBe('[Hello](https://example.com)');
   });
 
+  it('encodes characters that would break the markdown link', () => {
+    const textarea = setup('data-rich="full"', 'Hello');
+    const { editor } = mountRichText(textarea)!;
+    editor.commands.setTextSelection({ from: 1, to: 6 });
+    window.prompt = () => 'https://example.com/a b (1)';
+
+    click('Link');
+    expect(textarea.value).toBe('[Hello](https://example.com/a%20b%20%281%29)');
+  });
+
+  it('is announced as a group of formatting controls', () => {
+    mountRichText(setup('data-rich="full"', 'x'));
+    const toolbar = document.querySelector('[data-rich-toolbar]')!;
+    expect(toolbar.getAttribute('role')).toBe('group');
+    expect(toolbar.getAttribute('aria-label')).toBe('Formatting');
+  });
+
   it('refuses an unsafe address and says so', () => {
     const textarea = setup('data-rich="full"', 'Hello');
     const { editor } = mountRichText(textarea)!;

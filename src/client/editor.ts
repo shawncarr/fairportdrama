@@ -43,7 +43,12 @@ function promptForLink(editor: Editor, status: HTMLElement) {
     editor.chain().focus().extendMarkRange('link').unsetLink().run();
     return;
   }
-  const href = entered.trim();
+  // Kept as typed rather than as safeUrl normalizes it, except for what the
+  // markdown serializer writes into `[text](href)` unescaped: a space or a
+  // parenthesis there would end the link early.
+  const href = entered
+    .trim()
+    .replace(/[\s()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
   if (safeUrl(href) === null) {
     status.textContent = LINK_RULE;
     return;
@@ -116,6 +121,8 @@ export function mountRichText(textarea: HTMLTextAreaElement): MountedEditor | nu
 
   const toolbar = document.createElement('div');
   toolbar.dataset.richToolbar = '';
+  toolbar.setAttribute('role', 'group');
+  toolbar.setAttribute('aria-label', 'Formatting');
   toolbar.className = 'flex flex-wrap gap-1 border-b border-neutral-200 p-1';
   frame.prepend(toolbar);
 
