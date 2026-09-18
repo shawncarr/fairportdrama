@@ -1,4 +1,4 @@
-import { Marked } from 'marked';
+import { Marked, type Token, type Tokens } from 'marked';
 
 /**
  * What a rich text field may contain.
@@ -39,18 +39,38 @@ const FULL_TOKENS = new Set([
 
 const lexer = new Marked({ gfm: true, breaks: true });
 
+/** An HTML entity other than the four the editor writes back as it found them. */
+const REWRITTEN_ENTITY = /&(?!(?:amp|lt|gt|quot);)(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]*);/i;
+
 /**
- * The first markdown construct in `source` that `profile` does not model, or
- * null if it has none.
+ * Constructs whose token type the editor models, but which it does not save
+ * back as it loaded them. Each returns its name, or null.
+ */
+function rewrittenOnSave(token: Token): string | null {
+  // `caf&eacute;` comes back as `caf&amp;eacute;` and publishes as that text.
+  if (token.type === 'text' && REWRITTEN_ENTITY.test(token.raw)) return 'entity';
+  // The link around the image is dropped.
+  if (token.type === 'link' && token.tokens?.some((t) => t.type === 'image')) return 'linked image';
+  // The blank lines between items are removed, tightening the list.
+  if (token.type === 'list' && (token as Tokens.List).loose) return 'loose list';
+  return null;
+}
+
+/**
+ * The first markdown construct in `source` that `profile` cannot edit without
+ * changing it, or null if it has none.
  *
  * The editor must not mount on such a source: Tiptap loads a document holding
- * an unregistered node as empty, and saving would erase the field.
+ * an unregistered node as empty, and saving would erase the field. Some
+ * constructs it does register still come back altered, and saving would
+ * rewrite what the author wrote.
  */
 export function unsupportedToken(source: string, profile: RichTextProfile): string | null {
   const allowed = profile === RICH_TEXT_PROFILE.Basic ? BASIC_TOKENS : FULL_TOKENS;
   let found: string | null = null;
   lexer.walkTokens(lexer.lexer(source), (token) => {
-    if (found === null && !allowed.has(token.type)) found = token.type;
+    if (found !== null) return;
+    found = allowed.has(token.type) ? rewrittenOnSave(token) : token.type;
   });
   return found;
 }

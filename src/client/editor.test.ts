@@ -96,6 +96,9 @@ describe('falling back to the plain textarea', () => {
     ['basic', '> quoted'],
     ['full', '| a |\n|---|\n| 1 |'],
     ['full', '<b>raw</b>'],
+    ['full', 'caf&eacute;'],
+    ['full', '[![i](https://x.example/a.png)](https://x.example)'],
+    ['basic', '- a\n\n- b'],
   ])('leaves a %s field holding %j alone and says why', (profile, source) => {
     const textarea = setup(`data-rich="${profile}" required`, source);
 

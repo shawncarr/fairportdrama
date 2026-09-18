@@ -9,6 +9,14 @@ describe('unsupportedToken', () => {
     expect(unsupportedToken(bio, Basic)).toBeNull();
   });
 
+  it('accepts the entities the editor writes back unchanged', () => {
+    expect(unsupportedToken('Tom &amp; Jerry &lt;3 &gt; &quot;hi&quot;', Basic)).toBeNull();
+  });
+
+  it('accepts a tight list and a link without an image', () => {
+    expect(unsupportedToken('- a\n- b\n\n[x](https://x.example)', Basic)).toBeNull();
+  });
+
   it('accepts plain prose with literal markdown characters', () => {
     expect(unsupportedToken('5 * 3 and my_var #1', Basic)).toBeNull();
   });
@@ -35,6 +43,14 @@ describe('unsupportedToken', () => {
     ['| a |\n|---|\n| 1 |', 'table'],
     ['<b>raw</b>', 'html'],
     ['[ref][1]\n\n[1]: https://x.example', 'def'],
+    // The editor re-escapes these, so caf&eacute; would publish as literal text.
+    ['caf&eacute;', 'entity'],
+    ['a\n\n&nbsp;\n\nb', 'entity'],
+    ['[Tom &copy;](https://x.example)', 'entity'],
+    // The editor drops the link around the image.
+    ['[![i](https://x.example/a.png)](https://x.example)', 'linked image'],
+    // The editor tightens the spacing.
+    ['- a\n\n- b', 'loose list'],
   ])('refuses %j even in full', (source, type) => {
     expect(unsupportedToken(source, Full)).toBe(type);
   });
