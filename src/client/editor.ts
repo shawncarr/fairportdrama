@@ -22,6 +22,48 @@ export interface MountedEditor {
   textarea: HTMLTextAreaElement;
 }
 
+interface Tool {
+  label: string;
+  /** `status` is the line under the editor, for anything the tool must say. */
+  run: (editor: Editor, status: HTMLElement) => void;
+  active?: (editor: Editor) => boolean;
+  profiles: readonly RichTextProfile[];
+}
+
+const BOTH = [RICH_TEXT_PROFILE.Full, RICH_TEXT_PROFILE.Basic] as const;
+const FULL_ONLY = [RICH_TEXT_PROFILE.Full] as const;
+
+const LINK_RULE = 'Links must start with https://, http://, mailto:, or /.';
+
+function promptForLink(editor: Editor, status: HTMLElement) {
+  const previous = editor.getAttributes('link').href as string | undefined;
+  const entered = window.prompt('Link address (leave empty to remove the link)', previous ?? 'https://');
+  if (entered === null) return;
+  if (entered.trim() === '') {
+    editor.chain().focus().extendMarkRange('link').unsetLink().run();
+    return;
+  }
+  const href = entered.trim();
+  if (safeUrl(href) === null) {
+    status.textContent = LINK_RULE;
+    return;
+  }
+  editor.chain().focus().extendMarkRange('link').setLink({ href }).run();
+}
+
+const TOOLS: Tool[] = [
+  { label: 'Bold', profiles: BOTH, run: (e) => e.chain().focus().toggleBold().run(), active: (e) => e.isActive('bold') },
+  { label: 'Italic', profiles: BOTH, run: (e) => e.chain().focus().toggleItalic().run(), active: (e) => e.isActive('italic') },
+  { label: 'Heading', profiles: FULL_ONLY, run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run(), active: (e) => e.isActive('heading', { level: 2 }) },
+  { label: 'Subheading', profiles: FULL_ONLY, run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run(), active: (e) => e.isActive('heading', { level: 3 }) },
+  { label: 'Bullets', profiles: BOTH, run: (e) => e.chain().focus().toggleBulletList().run(), active: (e) => e.isActive('bulletList') },
+  { label: 'Numbers', profiles: BOTH, run: (e) => e.chain().focus().toggleOrderedList().run(), active: (e) => e.isActive('orderedList') },
+  { label: 'Quote', profiles: FULL_ONLY, run: (e) => e.chain().focus().toggleBlockquote().run(), active: (e) => e.isActive('blockquote') },
+  { label: 'Link', profiles: BOTH, run: promptForLink, active: (e) => e.isActive('link') },
+  { label: 'Undo', profiles: BOTH, run: (e) => e.chain().focus().undo().run() },
+  { label: 'Redo', profiles: BOTH, run: (e) => e.chain().focus().redo().run() },
+];
+
 const profileOf = (textarea: HTMLTextAreaElement): RichTextProfile =>
   textarea.dataset.rich === RICH_TEXT_PROFILE.Basic
     ? RICH_TEXT_PROFILE.Basic
@@ -72,6 +114,26 @@ export function mountRichText(textarea: HTMLTextAreaElement): MountedEditor | nu
   textarea.hidden = true;
   textarea.required = false;
 
+  const toolbar = document.createElement('div');
+  toolbar.dataset.richToolbar = '';
+  toolbar.className = 'flex flex-wrap gap-1 border-b border-neutral-200 p-1';
+  frame.prepend(toolbar);
+
+  const status = document.createElement('p');
+  status.className = 'text-xs text-neutral-500 mt-1';
+  status.setAttribute('aria-live', 'polite');
+  frame.after(status);
+
+  const tools = TOOLS.filter((t) => t.profiles.includes(profile)).map((tool) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = tool.label;
+    button.className =
+      'px-2 py-1 text-sm rounded text-neutral-700 hover:bg-neutral-100 aria-pressed:bg-neutral-200 aria-pressed:text-neutral-900';
+    toolbar.append(button);
+    return { tool, button };
+  });
+
   const editor = new Editor({
     element: host,
     extensions: extensionsFor(profile),
@@ -86,6 +148,17 @@ export function mountRichText(textarea: HTMLTextAreaElement): MountedEditor | nu
       textarea.value = editor.getMarkdown();
     },
   });
+
+  for (const { tool, button } of tools) {
+    button.addEventListener('click', () => tool.run(editor, status));
+  }
+  const refresh = () => {
+    for (const { tool, button } of tools) {
+      if (tool.active) button.setAttribute('aria-pressed', String(tool.active(editor)));
+    }
+  };
+  editor.on('transaction', refresh);
+  refresh();
 
   return { editor, textarea };
 }

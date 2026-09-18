@@ -109,3 +109,67 @@ describe('falling back to the plain textarea', () => {
     expect(document.body.textContent).toContain("formatting the editor can't show");
   });
 });
+
+const buttons = () =>
+  [...document.querySelectorAll<HTMLButtonElement>('[data-rich-toolbar] button')].map(
+    (b) => b.textContent,
+  );
+const click = (label: string) =>
+  [...document.querySelectorAll<HTMLButtonElement>('[data-rich-toolbar] button')]
+    .find((b) => b.textContent === label)!
+    .click();
+
+describe('the toolbar', () => {
+  it('offers headings and quotes for full fields', () => {
+    mountRichText(setup('data-rich="full"', 'x'));
+    expect(buttons()).toEqual([
+      'Bold', 'Italic', 'Heading', 'Subheading', 'Bullets', 'Numbers', 'Quote', 'Link', 'Undo', 'Redo',
+    ]);
+  });
+
+  it('offers only what a bio may hold', () => {
+    mountRichText(setup('data-rich="basic"', 'x'));
+    expect(buttons()).toEqual(['Bold', 'Italic', 'Bullets', 'Numbers', 'Link', 'Undo', 'Redo']);
+  });
+
+  it('never submits the form', () => {
+    mountRichText(setup('data-rich="full"', 'x'));
+    for (const b of document.querySelectorAll('[data-rich-toolbar] button')) {
+      expect(b.getAttribute('type')).toBe('button');
+    }
+  });
+
+  it('applies formatting and reports it with aria-pressed', () => {
+    const textarea = setup('data-rich="full"', 'Hello');
+    const { editor } = mountRichText(textarea)!;
+    editor.commands.setTextSelection({ from: 1, to: 6 });
+
+    click('Bold');
+    expect(textarea.value).toBe('**Hello**');
+    const bold = [...document.querySelectorAll('[data-rich-toolbar] button')].find(
+      (b) => b.textContent === 'Bold',
+    )!;
+    expect(bold.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('links to a safe address', () => {
+    const textarea = setup('data-rich="full"', 'Hello');
+    const { editor } = mountRichText(textarea)!;
+    editor.commands.setTextSelection({ from: 1, to: 6 });
+    window.prompt = () => 'https://example.com';
+
+    click('Link');
+    expect(textarea.value).toBe('[Hello](https://example.com)');
+  });
+
+  it('refuses an unsafe address and says so', () => {
+    const textarea = setup('data-rich="full"', 'Hello');
+    const { editor } = mountRichText(textarea)!;
+    editor.commands.setTextSelection({ from: 1, to: 6 });
+    window.prompt = () => 'javascript:alert(1)';
+
+    click('Link');
+    expect(textarea.value).toBe('Hello');
+    expect(document.body.textContent).toContain('Links must start with');
+  });
+});
