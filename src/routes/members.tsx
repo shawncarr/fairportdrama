@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
-import { html } from 'hono/html';
+import { html, raw } from 'hono/html';
 import type { AppEnv } from '~/env';
 import { getActiveMembers, getDb, getMemberShows, getPublicMemberProfile } from '~/db/queries';
 import { gradePlural, ROSTER_GRADE_ORDER } from '~/lib/grades';
 import { IMAGE_VARIANT, type ImageStore } from '~/lib/images';
+import { markdownToPlainText, renderMarkdown } from '~/lib/markdown';
+import { RICH_TEXT_PROFILE } from '~/lib/rich-text';
 import { roleDisplayName } from '~/lib/roles';
 
 export const memberRoutes = new Hono<AppEnv>();
@@ -319,7 +321,14 @@ memberRoutes.get('/members/:slug', async (c) => {
             </ul>
           )}
 
-          {member.bio && <p class="text-neutral-700 mt-6 leading-relaxed">{member.bio}</p>}
+          {member.bio && (
+            // The renderer closes off raw HTML and filters link schemes, so this
+            // markup can only be what marked generated from student-written
+            // markdown. See src/lib/markdown.ts.
+            <div class="prose prose-neutral max-w-none mt-6 text-neutral-700">
+              {raw(renderMarkdown(member.bio, { profile: RICH_TEXT_PROFILE.Basic }))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -344,7 +353,12 @@ memberRoutes.get('/members/:slug', async (c) => {
         </section>
       )}
     </div>,
-    { title: member.name, description: member.bio ?? `${member.name} - Fairport Drama Club` },
+    {
+      title: member.name,
+      description: member.bio
+        ? markdownToPlainText(member.bio)
+        : `${member.name} - Fairport Drama Club`,
+    },
   );
 });
 

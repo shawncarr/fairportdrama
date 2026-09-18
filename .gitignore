@@ -4,6 +4,7 @@ node_modules/
 # build output
 dist/
 public/static/global.css
+public/static/editor.js
 
 # wrangler local state and generated types
 .wrangler/

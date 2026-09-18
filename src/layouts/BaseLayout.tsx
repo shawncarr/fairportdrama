@@ -21,6 +21,8 @@ declare module 'hono' {
         type?: 'website' | 'article' | 'event';
         publishedDate?: string;
         modifiedDate?: string;
+        /** Admin only: load the rich text editor bundle. */
+        richText?: boolean;
       },
     ): Response;
   }

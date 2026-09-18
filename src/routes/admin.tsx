@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono';
+import { raw } from 'hono/html';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { AppEnv } from '~/env';
 import {
@@ -43,6 +44,8 @@ import {
   submitSelfEdit,
 } from '~/services/member-profile';
 import { displayName } from '~/lib/member-display';
+import { renderMarkdown } from '~/lib/markdown';
+import { RICH_TEXT_MAX_LENGTH, RICH_TEXT_PROFILE } from '~/lib/rich-text';
 import { IMAGE_VARIANT, MAX_IMAGE_BYTES, uploadImage, type ImageStore } from '~/lib/images';
 import { AUDIT_ACTION, AUDIT_ENTITY_KIND } from '~/lib/audit/constants';
 import { writeWithAudit } from '~/lib/audit/write';
@@ -99,6 +102,9 @@ import {
 } from '~/services/news';
 
 export const adminRoutes = new Hono<AppEnv>();
+
+const TOO_LONG = (what: string) =>
+  `Keep the ${what} under ${RICH_TEXT_MAX_LENGTH.toLocaleString('en-US')} characters.`;
 
 adminRoutes.use('/admin/*', noStore);
 adminRoutes.use('/admin/*', adminLayout);
@@ -419,8 +425,9 @@ adminRoutes.get(
             <textarea
               id="bio"
               name="bio"
+              data-rich="basic"
               rows={6}
-              maxlength={2000}
+              maxlength={RICH_TEXT_MAX_LENGTH}
               class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none"
             >
               {member.bio ?? ''}
@@ -503,7 +510,7 @@ adminRoutes.get(
           member if something is wrong.
         </p>
       </div>,
-      { title: 'My Profile' },
+      { title: 'My Profile', richText: true },
     );
   },
 );
@@ -519,6 +526,10 @@ adminRoutes.post(
     const visibility = String(form.get('visibility') ?? '');
     const bio = String(form.get('bio') ?? '').trim();
     const instagram = String(form.get('instagram') ?? '').trim();
+
+    if (bio.length > RICH_TEXT_MAX_LENGTH) {
+      return c.redirect(`/admin/profile?error=${encodeURIComponent(TOO_LONG('bio'))}`, 302);
+    }
 
     // Removal wins over a simultaneous upload: if someone ticks "remove" and
     // also picks a file, the safer reading of the intent is that the photo
@@ -575,6 +586,22 @@ function ProposedValue({
       <img src={url} alt="" class="w-28 h-28 rounded-lg object-cover ring-1 ring-neutral-200" />
     ) : (
       <p class="text-neutral-500">(no photo)</p>
+    );
+  }
+
+  // A rendered link hides where it goes, and the approver is accepting
+  // responsibility for it, so the source stays one click away.
+  if (field === 'bio' && typeof value === 'string' && value.length > 0) {
+    return (
+      <div>
+        <div class="prose prose-neutral prose-sm max-w-none">
+          {raw(renderMarkdown(value, { profile: RICH_TEXT_PROFILE.Basic }))}
+        </div>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-xs text-neutral-500">Show source</summary>
+          <pre class="mt-1 text-xs whitespace-pre-wrap text-neutral-700">{value}</pre>
+        </details>
+      </div>
     );
   }
 
@@ -1651,7 +1678,7 @@ adminRoutes.get('/admin/members/:id', requirePermission('member', 'update'), asy
             <label for="e-bio" class="block text-sm font-medium text-neutral-700 mb-1">
               Bio
             </label>
-            <textarea id="e-bio" name="bio" rows={5} maxlength={2000} class={field}>
+            <textarea id="e-bio" name="bio" data-rich="basic" rows={5} maxlength={RICH_TEXT_MAX_LENGTH} class={field}>
               {member.bio ?? ''}
             </textarea>
           </div>
@@ -1888,7 +1915,7 @@ adminRoutes.get('/admin/members/:id', requirePermission('member', 'update'), asy
         </form>
       </div>
     </div>,
-    { title: member.name },
+    { title: member.name, richText: true },
   );
 });
 
@@ -1920,6 +1947,9 @@ adminRoutes.post('/admin/members/:id', requirePermission('member', 'update'), as
     );
   }
 
+  const bio = String(form.get('bio') ?? '').trim();
+  if (bio.length > RICH_TEXT_MAX_LENGTH) return back(`?error=${encodeURIComponent(TOO_LONG('bio'))}`);
+
   let photoImageId: string | null | undefined;
   if (form.get('removePhoto')) {
     photoImageId = null;
@@ -1932,7 +1962,6 @@ adminRoutes.post('/admin/members/:id', requirePermission('member', 'update'), as
   const name = String(form.get('name') ?? '').trim().replace(/\s+/g, ' ');
   const grade = String(form.get('grade') ?? '');
   const year = Number.parseInt(String(form.get('graduationYear') ?? ''), 10);
-  const bio = String(form.get('bio') ?? '').trim();
   const instagram = String(form.get('instagram') ?? '').trim();
 
   await updateMember(db, c.get('actor'), id, {
@@ -2995,9 +3024,10 @@ const newsForm = (
       <textarea
         id="bodyMd"
         name="bodyMd"
+        data-rich="full"
         required
         rows={14}
-        class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 font-mono text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+        class="w-full px-4 py-2.5 rounded-lg border border-neutral-300 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none"
       >
         {post.bodyMd ?? ''}
       </textarea>
@@ -3067,7 +3097,7 @@ adminRoutes.get('/admin/news/new', requirePermission('news', 'create'), (c) =>
         '/admin/news/new',
       )}
     </div>,
-    { title: 'Write a post' },
+    { title: 'Write a post', richText: true },
   ),
 );
 
@@ -3128,7 +3158,7 @@ adminRoutes.get('/admin/news/:id', requirePermission('news', 'update'), async (c
         </button>
       </form>
     </div>,
-    { title: 'Edit post' },
+    { title: 'Edit post', richText: true },
   );
 });
 
@@ -3384,9 +3414,10 @@ function ShowFields({ values }: { values: ShowFormValues }) {
           <textarea
             id="s-synopsis"
             name="synopsis"
+            data-rich="full"
             required
             rows={5}
-            maxlength={2000}
+            maxlength={RICH_TEXT_MAX_LENGTH}
             class={field}
           >
             {values.synopsis}
@@ -3473,12 +3504,17 @@ adminRoutes.get('/admin/shows/new', requirePermission('show', 'create'), (c) =>
         </button>
       </form>
     </div>,
-    { title: 'Add a show' },
+    { title: 'Add a show', richText: true },
   ),
 );
 
 adminRoutes.post('/admin/shows/new', requirePermission('show', 'create'), async (c) => {
   const { values } = await readShowForm(c);
+
+  if (values.synopsis.length > RICH_TEXT_MAX_LENGTH) {
+    return c.redirect(`/admin/shows/new?error=${encodeURIComponent(TOO_LONG('synopsis'))}`, 302);
+  }
+
   const year = Number.parseInt(values.year, 10);
 
   if (!Number.isFinite(year) || year < 1900 || year > 2200) {
@@ -3923,7 +3959,7 @@ adminRoutes.get('/admin/shows/:id', requirePermission('cast', 'assign'), async (
         </button>
       </form>
     </div>,
-    { title: show.title },
+    { title: show.title, richText: true },
   );
 });
 
@@ -4049,6 +4085,14 @@ adminRoutes.post(
   async (c) => {
     const showId = c.req.param('id');
     const { values } = await readShowForm(c);
+
+    if (values.synopsis.length > RICH_TEXT_MAX_LENGTH) {
+      return c.redirect(
+        `/admin/shows/${showId}?error=${encodeURIComponent(TOO_LONG('synopsis'))}`,
+        302,
+      );
+    }
+
     const year = Number.parseInt(values.year, 10);
 
     await updateShow(getDb(c.env.DB), c.get('actor'), showId, {

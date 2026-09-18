@@ -49,7 +49,8 @@ const NAV: NavItem[] = [
 export const adminLayout = jsxRenderer(({ children, ...props }, c) => {
   const role = c.get('role');
   const path = new URL(c.req.url).pathname;
-  const title = (props as { title?: string }).title ?? 'Admin';
+  const title = props.title ?? 'Admin';
+  const richText = props.richText ?? false;
 
   // Nav is filtered by permission, not merely disabled. Showing someone a link
   // they cannot use invites them to try it and read a refusal.
@@ -64,6 +65,7 @@ export const adminLayout = jsxRenderer(({ children, ...props }, c) => {
         <title>{title} | Fairport Drama Admin</title>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="stylesheet" href="/static/global.css" />
+        {richText && <script type="module" src="/static/editor.js"></script>}
       </head>
       <body class="min-h-screen bg-neutral-100">
         <header class="bg-neutral-900 text-white">

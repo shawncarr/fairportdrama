@@ -1,6 +1,19 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  plugins: [
+    {
+      // Matches esbuild's `--loader:.svg=text` in build:editor, so the editor's
+      // icon imports are markup under test too rather than asset URLs.
+      name: 'svg-as-text',
+      enforce: 'pre',
+      load(id) {
+        if (!id.endsWith('.svg')) return null;
+        return `export default ${JSON.stringify(readFileSync(id, 'utf8'))};`;
+      },
+    },
+  ],
   resolve: {
     alias: { '~': new URL('./src', import.meta.url).pathname },
   },

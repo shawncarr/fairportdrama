@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { raw } from 'hono/html';
 import type { AppEnv } from '~/env';
 import {
   getCast,
@@ -18,6 +19,7 @@ import { PhotoGallery } from '~/components/PhotoGallery';
 import { IMAGE_VARIANT, ogImageUrl } from '~/lib/images';
 import { showDateLine } from '~/lib/dates';
 import { can } from '~/lib/auth/permissions';
+import { markdownToPlainText, renderMarkdown } from '~/lib/markdown';
 import { SHOW_COMPANY_LABEL } from '~/services/shows';
 import type { ShowCastTier } from '~/db/schema/content';
 
@@ -143,7 +145,12 @@ showRoutes.get('/shows/:slug', async (c) => {
               <h1 class="font-display text-4xl sm:text-5xl lg:text-6xl font-bold mb-6">
                 {show.title}
               </h1>
-              <p class="text-white/80 mb-8 max-w-2xl">{show.synopsis}</p>
+              {/* The renderer closes off raw HTML and filters link schemes, so this
+                  markup can only be what marked generated from student-written
+                  markdown. See src/lib/markdown.ts. */}
+              <div class="prose prose-invert max-w-2xl mb-8 text-white/80">
+                {raw(renderMarkdown(show.synopsis))}
+              </div>
 
               <dl class="grid sm:grid-cols-2 gap-4 text-sm mb-8">
                 <div>
@@ -298,7 +305,7 @@ showRoutes.get('/shows/:slug', async (c) => {
     </>,
     {
       title: show.title,
-      description: show.synopsis,
+      description: markdownToPlainText(show.synopsis),
       type: 'event',
       image:
         ogImageUrl(images, {

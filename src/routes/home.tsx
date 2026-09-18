@@ -15,6 +15,7 @@ import { ShowCard, toShowCardView } from '~/components/ShowCard';
 import { SponsorGrid, type SponsorView } from '~/components/SponsorGrid';
 import { IMAGE_VARIANT, ogImageUrl } from '~/lib/images';
 import { showDateLine, formatDate } from '~/lib/dates';
+import { markdownToPlainText } from '~/lib/markdown';
 import { SHOW_COMPANY_LABEL } from '~/services/shows';
 
 export const home = new Hono<AppEnv>();
@@ -103,7 +104,7 @@ home.get('/', async (c) => {
                   {featured.title}
                 </h1>
                 <p class="text-white/70 mb-8 max-w-xl mx-auto lg:mx-0">
-                  {featured.synopsis}
+                  {markdownToPlainText(featured.synopsis)}
                 </p>
 
                 <div class="flex flex-wrap gap-4 justify-center lg:justify-start mb-8 text-sm">
@@ -455,7 +456,7 @@ home.get('/', async (c) => {
     {
       title: 'Home',
       description: featured
-        ? `${featured.title} - ${featured.season}. ${featured.synopsis}`
+        ? `${featured.title} - ${featured.season}. ${markdownToPlainText(featured.synopsis)}`
         : undefined,
       image:
         ogImageUrl(images, {
